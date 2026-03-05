@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "Check if the conversation involved implementing UI changes (editing .tsx, .css, or component files). If yes, verify that mcp__claude-in-chrome__* tools were used to test the implementation (navigate, screenshot, read_console_messages). If UI work was done but no browser testing occurred, respond with {\"ok\": false, \"reason\": \"UI implementation detected but no browser testing was performed. Use Claude in Chrome tools to verify the changes work before stopping.\"}. Otherwise respond with {\"ok\": true}.",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
