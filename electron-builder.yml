@@ -1,0 +1,48 @@
+appId: com.scripter.app
+productName: Scripter
+directories:
+  buildResources: build
+  output: release
+files:
+  - dist-electron/**/*
+  - out/**/*
+  - package.json
+extraResources:
+  - from: drizzle/
+    to: drizzle/
+    filter:
+      - "**/*"
+extraMetadata:
+  main: dist-electron/main.js
+asar: true
+asarUnpack:
+  - "node_modules/better-sqlite3/**"
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: "${productName}-${version}-Setup.${ext}"
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: true
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+  category: public.app-category.productivity
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+  category: Office
+publish:
+  provider: github
+  owner: ""
+  repo: scripter

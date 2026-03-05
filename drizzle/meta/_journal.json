@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1772223350147,
+      "tag": "0000_bright_magik",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1772224864671,
+      "tag": "0001_plain_rogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1772226927065,
+      "tag": "0003_demonic_karen_page",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1772228793810,
+      "tag": "0003_useful_squadron_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1772303197096,
+      "tag": "0004_futuristic_malice",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1772487485749,
+      "tag": "0005_flaky_war_machine",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1772505086252,
+      "tag": "0006_friendly_wolf_cub",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1772553984636,
+      "tag": "0007_new_lila_cheney",
+      "breakpoints": true
+    }
+  ]
+}

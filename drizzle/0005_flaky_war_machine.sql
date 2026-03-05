@@ -1,0 +1,1 @@
+ALTER TABLE `scripts` ADD `status` text DEFAULT 'draft' NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `scripts` ADD `context` text DEFAULT '' NOT NULL;

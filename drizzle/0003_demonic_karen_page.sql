@@ -1,0 +1,1 @@
+ALTER TABLE `evaluations` ADD `structured_result` text;
