@@ -3,13 +3,11 @@
 @import "shadcn/tailwind.css";
 @plugin "@tailwindcss/typography";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-switzer);
+  --font-mono: var(--font-switzer);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,72 +48,37 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.955 0.002 286);
-  --foreground: oklch(0.12 0.005 285.823);
-  --card: oklch(0.965 0.002 286);
-  --card-foreground: oklch(0.12 0.005 285.823);
-  --popover: oklch(0.965 0.002 286);
-  --popover-foreground: oklch(0.12 0.005 285.823);
-  --primary: oklch(0.19 0.006 285.885);
-  --primary-foreground: oklch(0.96 0 0);
-  --secondary: oklch(0.925 0.003 286.375);
-  --secondary-foreground: oklch(0.19 0.006 285.885);
-  --muted: oklch(0.925 0.003 286.375);
-  --muted-foreground: oklch(0.45 0.016 285.938);
-  --accent: oklch(0.925 0.003 286.375);
-  --accent-foreground: oklch(0.19 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.87 0.006 286.32);
-  --input: oklch(0.87 0.006 286.32);
-  --ring: oklch(0.65 0.015 286.067);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.94 0.002 286);
-  --sidebar-foreground: oklch(0.12 0.005 285.823);
-  --sidebar-primary: oklch(0.19 0.006 285.885);
-  --sidebar-primary-foreground: oklch(0.96 0 0);
-  --sidebar-accent: oklch(0.91 0.003 286.375);
-  --sidebar-accent-foreground: oklch(0.19 0.006 285.885);
-  --sidebar-border: oklch(0.87 0.006 286.32);
-  --sidebar-ring: oklch(0.65 0.015 286.067);
-}
-
-.dark {
-  /* Notion-like warm, low-contrast dark theme */
-  --background: oklch(0.21 0.004 75);
-  --foreground: oklch(0.87 0.006 85);
-  --card: oklch(0.24 0.005 75);
-  --card-foreground: oklch(0.87 0.006 85);
-  --popover: oklch(0.25 0.005 75);
-  --popover-foreground: oklch(0.87 0.006 85);
-  --primary: oklch(0.84 0.006 85);
-  --primary-foreground: oklch(0.21 0.005 75);
-  --secondary: oklch(0.27 0.005 75);
-  --secondary-foreground: oklch(0.87 0.006 85);
-  --muted: oklch(0.27 0.005 75);
-  --muted-foreground: oklch(0.56 0.01 75);
-  --accent: oklch(0.27 0.005 75);
-  --accent-foreground: oklch(0.87 0.006 85);
-  --destructive: oklch(0.65 0.17 25);
-  --border: oklch(1 0 0 / 7%);
-  --input: oklch(1 0 0 / 9%);
-  --ring: oklch(0.48 0.01 75);
-  --chart-1: oklch(0.55 0.18 260);
-  --chart-2: oklch(0.65 0.14 165);
-  --chart-3: oklch(0.72 0.15 75);
-  --chart-4: oklch(0.58 0.2 300);
-  --chart-5: oklch(0.60 0.2 20);
-  --sidebar: oklch(0.195 0.004 75);
-  --sidebar-foreground: oklch(0.87 0.006 85);
-  --sidebar-primary: oklch(0.55 0.18 260);
-  --sidebar-primary-foreground: oklch(0.87 0.006 85);
-  --sidebar-accent: oklch(0.27 0.005 75);
-  --sidebar-accent-foreground: oklch(0.87 0.006 85);
-  --sidebar-border: oklch(1 0 0 / 7%);
-  --sidebar-ring: oklch(0.48 0.01 75);
+  --background: #f9f9f9;
+  --foreground: #2d3435;
+  --card: #ffffff;
+  --card-foreground: #2d3435;
+  --popover: #ffffff;
+  --popover-foreground: #2d3435;
+  --primary: #605e5c;
+  --primary-foreground: #fbf7f3;
+  --secondary: #d7e7d8;
+  --secondary-foreground: #2d3435;
+  --muted: #ebeeef;
+  --muted-foreground: #596061;
+  --accent: #f2f4f4;
+  --accent-foreground: #2d3435;
+  --destructive: #ef4444;
+  --border: transparent;
+  --input: #e8ebed;
+  --ring: #605e5c;
+  --chart-1: #605e5c;
+  --chart-2: #3b82f6;
+  --chart-3: #22c55e;
+  --chart-4: #f59e0b;
+  --chart-5: #8b5cf6;
+  --sidebar: #f5f5f4;
+  --sidebar-foreground: #2d3435;
+  --sidebar-primary: #605e5c;
+  --sidebar-primary-foreground: #fbf7f3;
+  --sidebar-accent: #f2f4f4;
+  --sidebar-accent-foreground: #2d3435;
+  --sidebar-border: transparent;
+  --sidebar-ring: #605e5c;
 }
 
 @layer base {
@@ -125,6 +88,29 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Glass morphism utility */
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
+}
+
+/* Glass panel for Synthesis panel */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 1.5rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
+
+.dark .glass-panel {
+  background: rgba(30, 30, 30, 0.85);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 /* Callout styles for Obsidian-style callouts */
@@ -141,53 +127,53 @@
 }
 
 .callout[data-callout-type="tip"] {
-  @apply border-l-green-500 bg-green-500/10;
+  @apply border-l-green-500 bg-green-50;
 }
 
 .callout[data-callout-type="tip"] .callout-title {
-  @apply text-green-400;
+  @apply text-green-600;
 }
 
 .callout[data-callout-type="warning"] {
-  @apply border-l-yellow-500 bg-yellow-500/10;
+  @apply border-l-yellow-500 bg-yellow-50;
 }
 
 .callout[data-callout-type="warning"] .callout-title {
-  @apply text-yellow-400;
+  @apply text-yellow-600;
 }
 
 .callout[data-callout-type="info"] {
-  @apply border-l-blue-500 bg-blue-500/10;
+  @apply border-l-blue-500 bg-blue-50;
 }
 
 .callout[data-callout-type="info"] .callout-title {
-  @apply text-blue-400;
+  @apply text-blue-600;
 }
 
 .callout[data-callout-type="note"] {
-  @apply border-l-blue-500 bg-blue-500/10;
+  @apply border-l-blue-500 bg-blue-50;
 }
 
 .callout[data-callout-type="note"] .callout-title {
-  @apply text-blue-400;
+  @apply text-blue-600;
 }
 
 .callout[data-callout-type="example"] {
-  @apply border-l-purple-500 bg-purple-500/10;
+  @apply border-l-purple-500 bg-purple-50;
 }
 
 .callout[data-callout-type="example"] .callout-title {
-  @apply text-purple-400;
+  @apply text-purple-600;
 }
 
 .callout[data-callout-type="danger"],
 .callout[data-callout-type="error"] {
-  @apply border-l-red-500 bg-red-500/10;
+  @apply border-l-red-500 bg-red-50;
 }
 
 .callout[data-callout-type="danger"] .callout-title,
 .callout[data-callout-type="error"] .callout-title {
-  @apply text-red-400;
+  @apply text-red-600;
 }
 
 /* Prose text wrapping */
@@ -218,6 +204,40 @@
 .tiptap {
   outline: none;
   min-height: 100%;
+  font-family: var(--font-switzer), system-ui, sans-serif;
+  caret-color: var(--foreground);
+  caret-shape: bar;
+}
+
+/* Smooth caret blink — fade instead of harsh on/off */
+.tiptap,
+.tiptap [contenteditable] {
+  animation: smooth-caret 1s ease-in-out infinite;
+}
+
+@keyframes smooth-caret {
+  0%, 100% { caret-color: var(--foreground); }
+  50% { caret-color: transparent; }
+}
+
+/* Subtle fade-in for newly inserted content */
+.tiptap .ProseMirror-trailingBreak {
+  display: inline;
+}
+
+/* Smooth transitions on interactive elements within the editor */
+.tiptap a {
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.tiptap blockquote {
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+/* Smooth cursor line highlight — subtle bg on the active line */
+.tiptap p:has(> .ProseMirror-selection),
+.tiptap .has-focus {
+  transition: background-color 0.15s ease;
 }
 
 .tiptap p.is-editor-empty:first-child::before {
@@ -229,10 +249,11 @@
 }
 
 .tiptap pre {
-  background: oklch(0.18 0.004 75);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 0.375rem;
   padding: 0.75rem 1rem;
-  font-family: var(--font-geist-mono), monospace;
+  font-family: var(--font-switzer), monospace;
   font-size: 0.8125rem;
 }
 
@@ -261,32 +282,37 @@
   font-weight: 600;
 }
 
-/* Suggestion highlights in Tiptap */
+/* Unified suggestion highlight — sage/stone style */
 .suggestion-highlight {
-  border-radius: 2px;
   cursor: pointer;
   transition: background-color 0.15s ease;
+  border-left: 2px solid #8a9a7b;
+  background: rgba(138, 154, 123, 0.08);
+  border-radius: 0;
+  padding-left: 2px;
 }
 
-.suggestion-highlight-high {
-  background: oklch(0.637 0.237 25.33 / 0.25);
-  border-bottom: 2px solid oklch(0.637 0.237 25.33);
+.suggestion-highlight:hover {
+  background: rgba(138, 154, 123, 0.18);
 }
 
-.suggestion-highlight-medium {
-  background: oklch(0.795 0.184 86.05 / 0.25);
-  border-bottom: 2px solid oklch(0.795 0.184 86.05);
-}
-
+.suggestion-highlight-high,
+.suggestion-highlight-medium,
 .suggestion-highlight-low {
-  background: oklch(0.623 0.214 259.1 / 0.25);
-  border-bottom: 2px solid oklch(0.623 0.214 259.1);
+  border-left: 2px solid #8a9a7b;
+  background: rgba(138, 154, 123, 0.08);
+}
+
+.suggestion-highlight-high:hover,
+.suggestion-highlight-medium:hover,
+.suggestion-highlight-low:hover {
+  background: rgba(138, 154, 123, 0.18);
 }
 
 .suggestion-highlight-active {
-  background: oklch(0.623 0.214 259.1 / 0.4);
-  border-bottom: 2px solid oklch(0.985 0 0);
-  outline: 1px solid oklch(0.985 0 0 / 0.5);
+  background: rgba(138, 154, 123, 0.22);
+  border-left: 2px solid #8a9a7b;
+  outline: 1px solid rgba(138, 154, 123, 0.4);
 }
 
 /* Fact-check highlights in Tiptap */
@@ -297,32 +323,123 @@
 }
 
 .fact-highlight-error {
-  background: oklch(0.637 0.237 25.33 / 0.2);
-  border-bottom: 2px solid oklch(0.637 0.237 25.33);
+  background: rgba(239, 68, 68, 0.12);
+  border-bottom: 2px solid #ef4444;
 }
 
 .fact-highlight-warning {
-  background: oklch(0.705 0.213 47.6 / 0.2);
-  border-bottom: 2px solid oklch(0.705 0.213 47.6);
+  background: rgba(245, 158, 11, 0.12);
+  border-bottom: 2px solid #f59e0b;
 }
 
 .fact-highlight-caution {
-  background: oklch(0.795 0.184 86.05 / 0.2);
-  border-bottom: 2px solid oklch(0.795 0.184 86.05);
+  background: rgba(234, 179, 8, 0.12);
+  border-bottom: 2px solid #eab308;
 }
 
 .fact-highlight-verified {
-  background: oklch(0.723 0.219 149.58 / 0.1);
-  border-bottom: 1px dashed oklch(0.723 0.219 149.58 / 0.6);
+  background: rgba(34, 197, 94, 0.06);
+  border-bottom: 1px dashed rgba(34, 197, 94, 0.5);
 }
 
 .fact-highlight-exaggeration {
-  background: oklch(0.627 0.265 303.9 / 0.15);
-  border-bottom: 2px dotted oklch(0.627 0.265 303.9);
+  background: rgba(168, 85, 247, 0.08);
+  border-bottom: 2px dotted #a855f7;
 }
 
 .fact-highlight-active {
-  background: oklch(0.623 0.214 259.1 / 0.4);
-  border-bottom: 2px solid oklch(0.985 0 0);
-  outline: 2px solid oklch(0.985 0 0 / 0.6);
+  background: rgba(59, 130, 246, 0.2);
+  border-bottom: 2px solid #3b82f6;
+  outline: 2px solid rgba(59, 130, 246, 0.4);
+}
+
+/* Production direction highlights in Tiptap */
+.direction-highlight {
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.direction-highlight-talking-head {
+  background: rgba(20, 184, 166, 0.1);
+  border-bottom: 2px solid #14b8a6;
+}
+
+.direction-highlight-b-roll {
+  background: rgba(168, 85, 247, 0.1);
+  border-bottom: 2px solid #a855f7;
+}
+
+.direction-highlight-motion-graphics {
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 2px solid #f59e0b;
+}
+
+.direction-highlight-screen-recording {
+  background: rgba(34, 197, 94, 0.1);
+  border-bottom: 2px solid #22c55e;
+}
+
+.direction-highlight-text-overlay {
+  background: rgba(236, 72, 153, 0.1);
+  border-bottom: 2px solid #ec4899;
+}
+
+.direction-highlight-archival {
+  background: rgba(234, 179, 8, 0.1);
+  border-bottom: 2px solid #eab308;
+}
+
+.direction-highlight-interview-clip {
+  background: rgba(99, 102, 241, 0.1);
+  border-bottom: 2px solid #6366f1;
+}
+
+.direction-highlight-mixed {
+  background: rgba(148, 163, 184, 0.1);
+  border-bottom: 2px dashed #94a3b8;
+}
+
+.direction-highlight-active {
+  background: rgba(59, 130, 246, 0.2);
+  border-bottom: 2px solid #3b82f6;
+  outline: 2px solid rgba(59, 130, 246, 0.4);
+}
+
+/* Script formatting classes */
+.script-scene-heading {
+  font-family: var(--font-switzer), monospace;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-top: 2rem;
+}
+
+.script-action {
+  font-family: var(--font-switzer), monospace;
+}
+
+.script-character {
+  font-family: var(--font-switzer), monospace;
+  text-transform: uppercase;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.script-parenthetical {
+  font-family: var(--font-switzer), monospace;
+  text-align: center;
+  font-style: italic;
+}
+
+.script-dialogue {
+  font-family: var(--font-switzer), monospace;
+  max-width: 35em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.script-transition {
+  font-family: var(--font-switzer), monospace;
+  text-transform: uppercase;
+  text-align: right;
 }

@@ -5,13 +5,17 @@ import { useAppStore } from "@/stores/app-store";
 import type { Script, ScriptVersion } from "@/types";
 import * as api from "@/lib/api";
 
-export function useScript() {
-  const { currentScriptId, setCurrentScriptId } = useAppStore();
+/**
+ * @param scriptId — when provided (e.g. from URL params), the hook loads
+ *   that script on mount.  When omitted, nothing is loaded automatically.
+ */
+export function useScript(scriptId?: number) {
+  const { setCurrentScriptId } = useAppStore();
   const [script, setScript] = useState<Script | null>(null);
   const [version, setVersion] = useState<ScriptVersion | null>(null);
   const [content, setContent] = useState("");
   const [context, setContextState] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!scriptId);
   const [saving, setSaving] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,7 +43,6 @@ export function useScript() {
     setContent("");
     setContextState("");
     setCurrentScriptId(data.id);
-    // Load full script with version
     await loadScript(data.id);
     return data;
   }, [setCurrentScriptId, loadScript]);
@@ -92,7 +95,6 @@ export function useScript() {
       setAutoSaving(true);
       try {
         await api.updateScript(script.id, { content: newContent });
-        // Also write to disk for file-backed scripts
         if (script.source === "file") {
           await api.saveFile(script.id);
         }
@@ -112,22 +114,26 @@ export function useScript() {
     }, 2000);
   }, [script]);
 
-  const handleDeleteScript = useCallback(async () => {
-    if (!script) return;
-    await api.deleteScript(script.id);
+  const closeScript = useCallback(() => {
     setScript(null);
     setVersion(null);
     setContent("");
     setContextState("");
     setCurrentScriptId(null);
-  }, [script, setCurrentScriptId]);
+  }, [setCurrentScriptId]);
 
-  // Load last script on mount
+  const handleDeleteScript = useCallback(async () => {
+    if (!script) return;
+    await api.deleteScript(script.id);
+    closeScript();
+  }, [script, closeScript]);
+
+  // Load script from ID param on mount
   useEffect(() => {
-    if (currentScriptId && !script) {
-      loadScript(currentScriptId);
+    if (scriptId && !script) {
+      loadScript(scriptId);
     }
-  }, [currentScriptId, script, loadScript]);
+  }, [scriptId, script, loadScript]);
 
   const isDirty =
     content !== (version?.content ?? "") &&
@@ -150,6 +156,7 @@ export function useScript() {
     updateTitle,
     updateStatus,
     saveContent,
+    closeScript,
     deleteScript: handleDeleteScript,
   };
 }

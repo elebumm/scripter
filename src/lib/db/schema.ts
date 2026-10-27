@@ -10,6 +10,7 @@ export const scripts = sqliteTable("scripts", {
   status: text("status").notNull().default("draft"), // "draft" | "in-progress" | "final"
   source: text("source").notNull().default("app"), // "app" | "file"
   filePath: text("file_path"), // absolute path for file-backed scripts
+  icon: text("icon"), // Phosphor icon name, e.g. "Eye", "Brain", "Lightning"
   isTemplate: integer("is_template", { mode: "boolean" })
     .notNull()
     .default(false),
@@ -169,6 +170,55 @@ export const factIssues = sqliteTable("fact_issues", {
   category: text("category").notNull().default("general"), // "statistic" | "date" | "attribution" | "technical" | "general"
   agentModels: text("agent_models").notNull().default("[]"), // JSON array of model names
   status: text("status").notNull().default("pending"), // "pending" | "acknowledged" | "dismissed" | "corrected"
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+export const directionRuns = sqliteTable("direction_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scriptId: integer("script_id")
+    .notNull()
+    .references(() => scripts.id, { onDelete: "cascade" }),
+  versionId: integer("version_id")
+    .notNull()
+    .references(() => scriptVersions.id, { onDelete: "cascade" }),
+  modelId: text("model_id").notNull(),
+  modelProvider: text("model_provider").notNull(),
+  result: text("result").notNull().default(""),
+  structuredResult: text("structured_result"),
+  isSummary: integer("is_summary", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  status: text("status", {
+    enum: ["pending", "streaming", "complete", "error"],
+  })
+    .notNull()
+    .default("pending"),
+  errorMessage: text("error_message"),
+  durationMs: integer("duration_ms"),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+export const productionDirections = sqliteTable("production_directions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scriptId: integer("script_id")
+    .notNull()
+    .references(() => scripts.id, { onDelete: "cascade" }),
+  versionId: integer("version_id")
+    .notNull()
+    .references(() => scriptVersions.id, { onDelete: "cascade" }),
+  originalText: text("original_text").notNull(),
+  directionType: text("direction_type").notNull(), // "talking-head" | "b-roll" | "motion-graphics" | "screen-recording" | "text-overlay" | "archival" | "interview-clip" | "mixed"
+  reasoning: text("reasoning").notNull(),
+  visualNotes: text("visual_notes"),
+  confidence: text("confidence").notNull().default("medium"), // "high" | "medium" | "low"
+  agreeingModels: text("agreeing_models").notNull().default("[]"), // JSON array
+  disagreeingModels: text("disagreeing_models").notNull().default("[]"), // JSON array of {model, alternativeType}
+  status: text("status").notNull().default("pending"), // "pending" | "accepted" | "modified" | "dismissed"
+  userOverrideType: text("user_override_type"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),

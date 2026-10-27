@@ -1,5 +1,8 @@
 export type { FactCheck, FactIssue, FactIssueWithStaleness, FactCheckModelState, FactCheckVerdict, FactCheckStatus, FactCheckCategory } from "./fact-check";
 export { FACT_CHECK_MODELS } from "./fact-check";
+export type { ProductionDirection, ProductionDirectionWithStaleness, DirectionModelState, DirectionType } from "./directions";
+export { DIRECTION_TYPES } from "./directions";
+export type { CouncilMember } from "./council";
 
 export type ScriptStatus = "draft" | "in-progress" | "final";
 
@@ -12,6 +15,7 @@ export interface Script {
   currentVersion: number;
   source: "app" | "file";
   filePath: string | null;
+  icon: string | null;
   isTemplate: boolean;
   templateDescription: string | null;
   createdAt: string;

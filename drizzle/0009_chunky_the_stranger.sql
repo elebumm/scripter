@@ -1,0 +1,1 @@
+ALTER TABLE `scripts` ADD `icon` text;

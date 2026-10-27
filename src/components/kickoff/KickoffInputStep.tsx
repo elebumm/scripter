@@ -73,7 +73,7 @@ export function KickoffInputStep({ formData, onChange }: KickoffInputStepProps) 
             value={String(formData.targetLength)}
             onValueChange={(v) => update("targetLength", Number(v))}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger variant="outline" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -92,7 +92,7 @@ export function KickoffInputStep({ formData, onChange }: KickoffInputStepProps) 
             value={formData.tone}
             onValueChange={(v) => update("tone", v === "_none" ? "" : v)}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger variant="outline" className="w-full">
               <SelectValue placeholder="Select tone..." />
             </SelectTrigger>
             <SelectContent>

@@ -80,7 +80,7 @@ export function CustomModelForm({
                 setProvider(v as "openrouter" | "ollama")
               }
             >
-              <SelectTrigger>
+              <SelectTrigger variant="outline">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

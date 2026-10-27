@@ -17,6 +17,7 @@ import {
   PanelRightOpen,
   PanelRightClose,
   SearchCheck,
+  Clapperboard,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import Link from "next/link";
@@ -37,6 +38,10 @@ interface TopBarProps {
   onFactCheck?: () => void;
   isFactCheckRunning?: boolean;
   onAbortFactCheck?: () => void;
+  // Directions
+  onGetDirections?: () => void;
+  isDirectionsRunning?: boolean;
+  onAbortDirections?: () => void;
   // Drawer
   hasResults: boolean;
   evalDrawerOpen: boolean;
@@ -61,6 +66,9 @@ export function TopBar({
   onFactCheck,
   isFactCheckRunning,
   onAbortFactCheck,
+  onGetDirections,
+  isDirectionsRunning,
+  onAbortDirections,
   hasResults,
   evalDrawerOpen,
   onToggleEvalDrawer,
@@ -166,6 +174,30 @@ export function TopBar({
             >
               <SearchCheck className="h-3 w-3" />
               Fact Check
+            </Button>
+          )}
+
+          {/* Directions button */}
+          {isDirectionsRunning ? (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={onAbortDirections}
+            >
+              <Square className="h-3 w-3" />
+              Stop Directions
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={onGetDirections}
+              disabled={!hasContent || isRunning}
+            >
+              <Clapperboard className="h-3 w-3" />
+              Directions
             </Button>
           )}
         </>

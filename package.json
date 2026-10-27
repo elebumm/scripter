@@ -15,7 +15,9 @@
   "dependencies": {
     "@ai-sdk/openai": "^3.0.36",
     "@openrouter/ai-sdk-provider": "^2.2.3",
+    "@phosphor-icons/react": "^2.1.10",
     "@tiptap/extension-code-block-lowlight": "^3.20.0",
+    "@tiptap/extension-focus": "^3.20.5",
     "@tiptap/extension-link": "^3.20.0",
     "@tiptap/extension-placeholder": "^3.20.0",
     "@tiptap/extension-table": "^3.20.0",

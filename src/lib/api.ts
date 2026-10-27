@@ -88,6 +88,24 @@ export async function updateScript(
   return res.json();
 }
 
+export async function pickIcon(scriptId: number): Promise<{ scriptId: number; icon: string | null }> {
+  const res = await fetch("/api/scripts/pick-icon", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scriptId }),
+  });
+  return res.json();
+}
+
+export async function backfillIcons(): Promise<{ updated: number; results: { id: number; icon: string | null }[] }> {
+  const res = await fetch("/api/scripts/pick-icon", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ backfill: true }),
+  });
+  return res.json();
+}
+
 export async function deleteScript(id: number): Promise<void> {
   if (useIPC()) {
     await api().scripts.delete(id);
@@ -286,6 +304,33 @@ export async function updateFactIssueStatus(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+// --------------- Directions ---------------
+
+export async function getDirections(
+  scriptId: number,
+  versionId: number
+): Promise<import("@/types").ProductionDirection[]> {
+  const res = await fetch(
+    `/api/directions/annotations?scriptId=${scriptId}&versionId=${versionId}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch directions");
+  return res.json();
+}
+
+export async function updateDirectionStatus(
+  id: number,
+  status: "accepted" | "modified" | "dismissed",
+  userOverrideType?: string
+): Promise<import("@/types").ProductionDirection | null> {
+  const res = await fetch(`/api/directions/annotations`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, status, userOverrideType }),
   });
   if (!res.ok) return null;
   return res.json();

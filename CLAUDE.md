@@ -2,6 +2,7 @@
 
 AI-powered video script editor that runs multiple LLM evaluations in parallel and synthesizes them into a master summary. Write markdown scripts, get scored feedback from 5+ models simultaneously, see a unified summary with score comparisons, and get concrete text-level edit suggestions with inline editor highlights.
 
+
 ## Tech Stack
 
 - **Framework**: Next.js 16 (App Router, TypeScript, React 19)

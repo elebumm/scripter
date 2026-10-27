@@ -20,7 +20,7 @@ import { ScoreTrendChart } from "./ScoreTrendChart";
 import { Sparkles, Clock, BarChart3 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { FactCheckSection } from "@/components/factcheck/FactCheckSection";
-import type { ModelEvalState, FactCheckModelState } from "@/types";
+import type { ModelEvalState, FactCheckModelState, DirectionModelState } from "@/types";
 
 interface EvaluationDrawerProps {
   open: boolean;
@@ -38,6 +38,12 @@ interface EvaluationDrawerProps {
   isFactCheckRunning?: boolean;
   factCheckCompletedCount?: number;
   factCheckTotalCount?: number;
+  // Directions
+  directionModelStates?: Record<string, DirectionModelState>;
+  directionSummary?: DirectionModelState;
+  isDirectionsRunning?: boolean;
+  directionCompletedCount?: number;
+  directionTotalCount?: number;
 }
 
 export function EvaluationDrawer({
@@ -55,8 +61,13 @@ export function EvaluationDrawer({
   isFactCheckRunning,
   factCheckCompletedCount,
   factCheckTotalCount,
+  directionModelStates,
+  directionSummary,
+  isDirectionsRunning,
+  directionCompletedCount,
+  directionTotalCount,
 }: EvaluationDrawerProps) {
-  const { factCheckDrawerView, setFactCheckDrawerView } = useAppStore();
+  const { drawerView, setDrawerView } = useAppStore();
   const [view, setView] = useState<"current" | "history" | "trends">("current");
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
@@ -85,6 +96,33 @@ export function EvaluationDrawer({
     models.some((m) => m.status !== "idle") ||
     masterSummary.status !== "idle";
 
+  // Direction section data
+  const dirModels = directionModelStates ? Object.values(directionModelStates) : [];
+  const dirSummaryState = directionSummary ?? {
+    modelId: "direction-summary",
+    modelName: "Direction Summary",
+    status: "idle" as const,
+    text: "",
+  };
+  const hasDirResults =
+    dirModels.some((m) => m.status !== "idle") ||
+    dirSummaryState.status !== "idle";
+  const dirProgressPercent =
+    (directionTotalCount ?? 0) > 0
+      ? ((directionCompletedCount ?? 0) / (directionTotalCount ?? 1)) * 100
+      : 0;
+
+  const drawerTitle =
+    drawerView === "factcheck"
+      ? "Fact Check Results"
+      : drawerView === "directions"
+      ? "Production Directions"
+      : view === "history"
+      ? "Evaluation History"
+      : view === "trends"
+      ? "Score Trends"
+      : "Evaluation Results";
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
       <SheetContent
@@ -94,37 +132,37 @@ export function EvaluationDrawer({
         className="w-full sm:w-[45vw] sm:min-w-[480px] sm:max-w-[720px] p-0 flex flex-col"
       >
         <SheetHeader className="px-4 py-3 border-b shrink-0">
-          {/* Eval / Fact Check toggle */}
+          {/* Eval / Fact Check / Directions toggle */}
           <div className="flex items-center gap-1 mb-2">
             <Button
-              variant={factCheckDrawerView === "eval" ? "secondary" : "ghost"}
+              variant={drawerView === "eval" ? "secondary" : "ghost"}
               size="sm"
               className="h-7 text-xs px-3"
-              onClick={() => setFactCheckDrawerView("eval")}
+              onClick={() => setDrawerView("eval")}
             >
               Evaluation
             </Button>
             <Button
-              variant={factCheckDrawerView === "factcheck" ? "secondary" : "ghost"}
+              variant={drawerView === "factcheck" ? "secondary" : "ghost"}
               size="sm"
               className="h-7 text-xs px-3"
-              onClick={() => setFactCheckDrawerView("factcheck")}
+              onClick={() => setDrawerView("factcheck")}
             >
               Fact Check
+            </Button>
+            <Button
+              variant={drawerView === "directions" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 text-xs px-3"
+              onClick={() => setDrawerView("directions")}
+            >
+              Directions
             </Button>
           </div>
 
           <div className="flex items-center justify-between">
-            <SheetTitle className="text-base">
-              {factCheckDrawerView === "factcheck"
-                ? "Fact Check Results"
-                : view === "history"
-                ? "Evaluation History"
-                : view === "trends"
-                ? "Score Trends"
-                : "Evaluation Results"}
-            </SheetTitle>
-            {factCheckDrawerView === "eval" && view === "current" && scriptId && (
+            <SheetTitle className="text-base">{drawerTitle}</SheetTitle>
+            {drawerView === "eval" && view === "current" && scriptId && (
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
@@ -147,7 +185,7 @@ export function EvaluationDrawer({
               </div>
             )}
           </div>
-          {factCheckDrawerView === "eval" && isRunning && view === "current" && (
+          {drawerView === "eval" && isRunning && view === "current" && (
             <div className="flex items-center gap-2 pt-1">
               <Progress value={progressPercent} className="h-1.5 flex-1" />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -157,9 +195,19 @@ export function EvaluationDrawer({
               </span>
             </div>
           )}
+          {drawerView === "directions" && isDirectionsRunning && (
+            <div className="flex items-center gap-2 pt-1">
+              <Progress value={dirProgressPercent} className="h-1.5 flex-1" />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {dirSummaryState.status === "streaming"
+                  ? "Synthesizing directions..."
+                  : `${directionCompletedCount ?? 0}/${directionTotalCount ?? 0} models`}
+              </span>
+            </div>
+          )}
         </SheetHeader>
 
-        {factCheckDrawerView === "factcheck" ? (
+        {drawerView === "factcheck" ? (
           <ScrollArea className="flex-1 min-h-0">
             <FactCheckSection
               modelStates={factCheckModelStates ?? {}}
@@ -173,6 +221,67 @@ export function EvaluationDrawer({
               completedCount={factCheckCompletedCount ?? 0}
               totalCount={factCheckTotalCount ?? 0}
             />
+          </ScrollArea>
+        ) : drawerView === "directions" ? (
+          <ScrollArea className="flex-1 min-h-0">
+            {!hasDirResults ? (
+              <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">
+                Click &ldquo;Directions&rdquo; to analyze production direction types
+              </div>
+            ) : (
+              <div className="pb-6">
+                {/* Direction Summary */}
+                {dirSummaryState.status !== "idle" && (
+                  <div className="px-4 pt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="h-4 w-4 text-teal-500" />
+                      <h3 className="text-sm font-semibold">Direction Consensus</h3>
+                      <ModelStatusBadge status={dirSummaryState.status} />
+                    </div>
+                    {dirSummaryState.status === "pending" && (
+                      <div className="space-y-3">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-4 w-1/2" />
+                        <Skeleton className="h-4 w-5/6" />
+                      </div>
+                    )}
+                    {(dirSummaryState.status === "streaming" ||
+                      dirSummaryState.status === "complete") && (
+                      <MarkdownPreview content={dirSummaryState.text} />
+                    )}
+                    {dirSummaryState.status === "error" && (
+                      <div className="text-sm text-destructive">
+                        <p className="font-medium">Error</p>
+                        <p className="text-muted-foreground">
+                          {dirSummaryState.error}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Individual Model Direction Results */}
+                {dirModels.length > 0 && (
+                  <>
+                    <Separator className="my-4" />
+                    <div className="px-4 pb-2">
+                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        Individual Model Analyses
+                      </h3>
+                    </div>
+                    <div>
+                      {dirModels.map((m) => (
+                        <ModelCollapsible
+                          key={m.modelId}
+                          state={m}
+                          onRetry={() => {}}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </ScrollArea>
         ) : view === "history" ? (
           <EvaluationHistory

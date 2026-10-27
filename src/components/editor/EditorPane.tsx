@@ -4,9 +4,9 @@ import { useCallback, useMemo, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { RichEditor } from "./RichEditor";
 import { MarkdownSourceEditor } from "./MarkdownSourceEditor";
-import { SuggestionPopover } from "./SuggestionPopover";
-import { FactIssuePopover } from "./FactIssuePopover";
-import type { SuggestionWithStaleness, FactIssueWithStaleness } from "@/types";
+import { CouncilFeedbackCard } from "@/components/council/CouncilFeedbackCard";
+import { DEFAULT_COUNCIL_MEMBERS } from "@/lib/design-system";
+import type { SuggestionWithStaleness, FactIssueWithStaleness, ProductionDirectionWithStaleness, DirectionType } from "@/types";
 import type { Editor } from "@tiptap/react";
 
 interface EditorPaneProps {
@@ -23,6 +23,12 @@ interface EditorPaneProps {
   onCorrectFactIssue?: (id: number) => void;
   onAcknowledgeFactIssue?: (id: number) => void;
   onDismissFactIssue?: (id: number) => void;
+  directions?: ProductionDirectionWithStaleness[];
+  activeDirectionId?: number | null;
+  onClickDirection?: (id: number | null) => void;
+  onAcceptDirection?: (id: number) => void;
+  onModifyDirection?: (id: number, newType: DirectionType) => void;
+  onDismissDirection?: (id: number) => void;
 }
 
 export function EditorPane({
@@ -36,11 +42,11 @@ export function EditorPane({
   factIssues,
   activeFactIssueId,
   onClickFactIssue,
-  onCorrectFactIssue,
-  onAcknowledgeFactIssue,
-  onDismissFactIssue,
+  directions,
+  activeDirectionId,
+  onClickDirection,
 }: EditorPaneProps) {
-  const { editorMode } = useAppStore();
+  const { editorMode, activeCouncilMemberId } = useAppStore();
   const [editor, setEditor] = useState<Editor | null>(null);
 
   const activeSuggestion = useMemo(() => {
@@ -48,18 +54,14 @@ export function EditorPane({
     return suggestions.find((s) => s.id === activeSuggestionId) ?? null;
   }, [activeSuggestionId, suggestions]);
 
-  const activeFactIssue = useMemo(() => {
-    if (activeFactIssueId == null || !factIssues) return null;
-    return factIssues.find((i) => i.id === activeFactIssueId) ?? null;
-  }, [activeFactIssueId, factIssues]);
+  const activeCouncilMember = useMemo(() => {
+    if (!activeCouncilMemberId) return DEFAULT_COUNCIL_MEMBERS[0] ?? null;
+    return DEFAULT_COUNCIL_MEMBERS.find((m) => m.id === activeCouncilMemberId) ?? DEFAULT_COUNCIL_MEMBERS[0] ?? null;
+  }, [activeCouncilMemberId]);
 
   const handleClose = useCallback(() => {
     onClickSuggestion?.(null);
   }, [onClickSuggestion]);
-
-  const handleFactIssueClose = useCallback(() => {
-    onClickFactIssue?.(null);
-  }, [onClickFactIssue]);
 
   const handleEditorReady = useCallback((ed: Editor | null) => {
     setEditor(ed);
@@ -80,22 +82,18 @@ export function EditorPane({
         factIssues={factIssues}
         activeFactIssueId={activeFactIssueId}
         onClickFactIssue={onClickFactIssue}
+        directions={directions}
+        activeDirectionId={activeDirectionId}
+        onClickDirection={onClickDirection}
         onEditorReady={handleEditorReady}
       />
-      <SuggestionPopover
+      <CouncilFeedbackCard
         editor={editor}
         suggestion={activeSuggestion}
+        councilMember={activeCouncilMember}
         onAccept={onAcceptSuggestion ?? (() => {})}
         onDismiss={onDismissSuggestion ?? (() => {})}
         onClose={handleClose}
-      />
-      <FactIssuePopover
-        editor={editor}
-        issue={activeFactIssue}
-        onCorrect={onCorrectFactIssue ?? (() => {})}
-        onAcknowledge={onAcknowledgeFactIssue ?? (() => {})}
-        onDismiss={onDismissFactIssue ?? (() => {})}
-        onClose={handleFactIssueClose}
       />
     </div>
   );

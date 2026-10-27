@@ -35,9 +35,17 @@ interface AppState {
   evalDrawerOpen: boolean;
   setEvalDrawerOpen: (open: boolean) => void;
 
-  // Fact check
-  factCheckDrawerView: "eval" | "factcheck";
-  setFactCheckDrawerView: (view: "eval" | "factcheck") => void;
+  // Drawer view
+  drawerView: "eval" | "factcheck" | "directions";
+  setDrawerView: (view: "eval" | "factcheck" | "directions") => void;
+
+  // Council
+  activeCouncilMemberId: string | null;
+  setActiveCouncilMemberId: (id: string | null) => void;
+
+  // Active mode
+  activeMode: "drafts" | "revision" | "beat-sheet" | "orchestrator";
+  setActiveMode: (mode: "drafts" | "revision" | "beat-sheet" | "orchestrator") => void;
 
   // Script search & filter (non-persisted)
   scriptSearchQuery: string;
@@ -78,8 +86,14 @@ export const useAppStore = create<AppState>()(
       evalDrawerOpen: false,
       setEvalDrawerOpen: (open) => set({ evalDrawerOpen: open }),
 
-      factCheckDrawerView: "eval",
-      setFactCheckDrawerView: (view) => set({ factCheckDrawerView: view }),
+      drawerView: "eval",
+      setDrawerView: (view) => set({ drawerView: view }),
+
+      activeCouncilMemberId: null,
+      setActiveCouncilMemberId: (id) => set({ activeCouncilMemberId: id }),
+
+      activeMode: "revision",
+      setActiveMode: (mode) => set({ activeMode: mode }),
 
       scriptSearchQuery: "",
       setScriptSearchQuery: (query) => set({ scriptSearchQuery: query }),
@@ -95,12 +109,13 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "scripter-store",
-      version: 2,
+      version: 5,
       partialize: (state) => ({
         currentScriptId: state.currentScriptId,
         editorMode: state.editorMode,
         activeModelIds: state.activeModelIds,
         selectedProfileId: state.selectedProfileId,
+        activeMode: state.activeMode,
       }),
       migrate: (persisted, version) => {
         const state = persisted as Record<string, unknown>;
@@ -114,6 +129,19 @@ export const useAppStore = create<AppState>()(
         if (version < 2) {
           // v1 → v2: editor mode changed from edit/split/preview to wysiwyg/markdown
           state.editorMode = "wysiwyg";
+        }
+        if (version < 3) {
+          // v2 → v3: factCheckDrawerView renamed to drawerView, extended with "directions"
+          state.drawerView = (state as Record<string, unknown>).factCheckDrawerView ?? "eval";
+          delete (state as Record<string, unknown>).factCheckDrawerView;
+        }
+        if (version < 4) {
+          // v3 → v4: add council member state
+          state.activeCouncilMemberId = null;
+        }
+        if (version < 5) {
+          // v4 → v5: add active mode
+          state.activeMode = "revision";
         }
         return state;
       },

@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
-import { Type, Code2, Target, Lightbulb, SearchCheck } from "lucide-react";
+import { Type, Code2, Target, Lightbulb, SearchCheck, Clapperboard } from "lucide-react";
 
 interface EditorToolbarProps {
   content: string;
@@ -11,6 +11,7 @@ interface EditorToolbarProps {
   isEvaluating: boolean;
   pendingSuggestionsCount?: number;
   pendingFactIssuesCount?: number;
+  pendingDirectionsCount?: number;
 }
 
 export function EditorToolbar({
@@ -19,6 +20,7 @@ export function EditorToolbar({
   isEvaluating,
   pendingSuggestionsCount = 0,
   pendingFactIssuesCount = 0,
+  pendingDirectionsCount = 0,
 }: EditorToolbarProps) {
   const { editorMode, setEditorMode, selectedSection } = useAppStore();
 
@@ -62,6 +64,16 @@ export function EditorToolbar({
         >
           <SearchCheck className="h-3 w-3" />
           {pendingFactIssuesCount} fact issue{pendingFactIssuesCount !== 1 ? "s" : ""}
+        </Badge>
+      )}
+
+      {pendingDirectionsCount > 0 && (
+        <Badge
+          variant="outline"
+          className="gap-1 text-xs text-teal-400 border-teal-500/30"
+        >
+          <Clapperboard className="h-3 w-3" />
+          {pendingDirectionsCount} direction{pendingDirectionsCount !== 1 ? "s" : ""}
         </Badge>
       )}
 

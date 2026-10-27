@@ -13,8 +13,7 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import { useEffect, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
-import { RichEditorToolbar } from "./RichEditorToolbar";
-import type { Suggestion, FactIssueWithStaleness } from "@/types";
+import type { Suggestion, FactIssueWithStaleness, ProductionDirectionWithStaleness } from "@/types";
 import {
   SuggestionHighlightExtension,
   setSuggestions,
@@ -27,6 +26,12 @@ import {
   setActiveFactIssue,
   findFactIssueAtPos,
 } from "./fact-issues-extension";
+import {
+  DirectionHighlightExtension,
+  setDirections,
+  setActiveDirection,
+  findDirectionAtPos,
+} from "./directions-extension";
 
 const lowlight = createLowlight(common);
 
@@ -39,6 +44,9 @@ interface RichEditorProps {
   factIssues?: FactIssueWithStaleness[];
   activeFactIssueId?: number | null;
   onClickFactIssue?: (id: number | null) => void;
+  directions?: ProductionDirectionWithStaleness[];
+  activeDirectionId?: number | null;
+  onClickDirection?: (id: number | null) => void;
   onEditorReady?: (editor: Editor | null) => void;
 }
 
@@ -51,6 +59,9 @@ export function RichEditor({
   factIssues,
   activeFactIssueId,
   onClickFactIssue,
+  directions,
+  activeDirectionId,
+  onClickDirection,
   onEditorReady,
 }: RichEditorProps) {
   const setSelectedSection = useAppStore((s) => s.setSelectedSection);
@@ -80,6 +91,7 @@ export function RichEditor({
       CodeBlockLowlight.configure({ lowlight }),
       SuggestionHighlightExtension,
       FactIssueHighlightExtension,
+      DirectionHighlightExtension,
     ],
     content: "",
     onUpdate: ({ editor: ed }) => {
@@ -103,10 +115,16 @@ export function RichEditor({
     },
     editorProps: {
       handleClick: (view, pos) => {
-        // Fact issues take priority over suggestions
+        // Fact issues take priority over suggestions, then directions
         const factIssueId = findFactIssueAtPos(view.state, pos);
         if (factIssueId !== null) {
           onClickFactIssue?.(factIssueId);
+          return false;
+        }
+
+        const directionId = findDirectionAtPos(view.state, pos);
+        if (directionId !== null) {
+          onClickDirection?.(directionId);
           return false;
         }
 
@@ -117,7 +135,7 @@ export function RichEditor({
       },
       attributes: {
         class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto min-h-[50vh] px-4 py-6 outline-none focus:outline-none",
+          "prose prose-lg max-w-none min-h-[50vh] px-4 py-6 outline-none focus:outline-none",
       },
     },
   });
@@ -173,11 +191,22 @@ export function RichEditor({
     }
   }, [editor, activeFactIssueId]);
 
+  // Sync directions into ProseMirror plugin state
+  useEffect(() => {
+    if (editor && directions) {
+      setDirections(editor, directions);
+    }
+  }, [editor, directions]);
+
+  // Sync active direction highlight
+  useEffect(() => {
+    if (editor) {
+      setActiveDirection(editor, activeDirectionId ?? null);
+    }
+  }, [editor, activeDirectionId]);
+
   return (
     <div>
-      <div className="max-w-3xl mx-auto">
-        <RichEditorToolbar editor={editor} />
-      </div>
       <EditorContent editor={editor} />
     </div>
   );

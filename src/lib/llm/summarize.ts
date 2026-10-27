@@ -103,7 +103,7 @@ export function streamSummary({
   evaluations: EvaluationInput[];
   scriptStatus?: string;
 }) {
-  const model = getModel("openrouter", "anthropic/claude-sonnet-4.6");
+  const model = getModel("openrouter", "anthropic/claude-opus-4-6");
 
   const structuredSection = buildStructuredSection(evaluations);
 
