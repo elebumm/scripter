@@ -1,30 +1,20 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { ensureDb } from "@/lib/db/init";
-import { getFactIssuesForVersion } from "@/lib/db/queries/fact-issues";
-import { NextRequest } from "next/server";
+import { getLatestGroundedFactCheck } from "@/lib/db/queries/fact-checks";
+import { listFactNotesForCheck } from "@/lib/db/queries/fact-issues";
+import { jsonError } from "@/lib/stream/ndjson";
 
+/**
+ * GET /api/fact-issues?scriptId= → FactNote[]
+ * Notes from the script's latest completed grounded fact-check (any version;
+ * the client marks stale ones). Legacy notes written without search are
+ * never returned.
+ */
 export async function GET(req: NextRequest) {
   ensureDb();
-  const { searchParams } = req.nextUrl;
-  const scriptId = Number(searchParams.get("scriptId"));
-  const versionId = Number(searchParams.get("versionId"));
-
-  if (!scriptId || !versionId) {
-    return new Response(
-      JSON.stringify({ error: "scriptId and versionId are required" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  const issues = getFactIssuesForVersion(scriptId, versionId);
-
-  // Parse JSON fields for client
-  const parsed = issues.map((issue) => ({
-    ...issue,
-    sources: JSON.parse(issue.sources as string),
-    agentModels: JSON.parse(issue.agentModels as string),
-  }));
-
-  return new Response(JSON.stringify(parsed), {
-    headers: { "Content-Type": "application/json" },
-  });
+  const scriptId = z.coerce.number().int().positive().safeParse(req.nextUrl.searchParams.get("scriptId"));
+  if (!scriptId.success) return jsonError("scriptId is required");
+  const latest = getLatestGroundedFactCheck(scriptId.data);
+  return NextResponse.json(latest ? listFactNotesForCheck(latest.id) : []);
 }

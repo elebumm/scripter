@@ -1,100 +1,134 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { useAppStore } from "@/stores/app-store";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import type { Editor } from "@tiptap/react";
+import { Button } from "@/components/ui/button";
+import { useAppStore, type EditorMode } from "@/stores/app-store";
+import type { RewrittenLine } from "@/lib/markdown/serialize";
 import { RichEditor } from "./RichEditor";
 import { MarkdownSourceEditor } from "./MarkdownSourceEditor";
-import { CouncilFeedbackCard } from "@/components/council/CouncilFeedbackCard";
-import { DEFAULT_COUNCIL_MEMBERS } from "@/lib/design-system";
-import type { SuggestionWithStaleness, FactIssueWithStaleness, ProductionDirectionWithStaleness, DirectionType } from "@/types";
-import type { Editor } from "@tiptap/react";
+import { findWysiwygRewrite } from "./editor-content";
+import type { Annotation } from "./annotations-extension";
 
 interface EditorPaneProps {
   content: string;
   onChange: (value: string) => void;
-  suggestions?: SuggestionWithStaleness[];
-  activeSuggestionId?: number | null;
-  onClickSuggestion?: (id: number | null) => void;
-  onAcceptSuggestion?: (id: number) => void;
-  onDismissSuggestion?: (id: number) => void;
-  factIssues?: FactIssueWithStaleness[];
-  activeFactIssueId?: number | null;
-  onClickFactIssue?: (id: number | null) => void;
-  onCorrectFactIssue?: (id: number) => void;
-  onAcknowledgeFactIssue?: (id: number) => void;
-  onDismissFactIssue?: (id: number) => void;
-  directions?: ProductionDirectionWithStaleness[];
-  activeDirectionId?: number | null;
-  onClickDirection?: (id: number | null) => void;
-  onAcceptDirection?: (id: number) => void;
-  onModifyDirection?: (id: number, newType: DirectionType) => void;
-  onDismissDirection?: (id: number) => void;
+  annotations?: Annotation[];
+  onAnnotationClick?: (id: string | null) => void;
+  onEditorReady?: (editor: Editor | null) => void;
+  /** Rendered inside the editor column (anchored note/fact cards). WYSIWYG only. */
+  overlay?: ReactNode;
 }
 
-export function EditorPane({
-  content,
-  onChange,
-  suggestions,
-  activeSuggestionId,
-  onClickSuggestion,
-  onAcceptSuggestion,
-  onDismissSuggestion,
-  factIssues,
-  activeFactIssueId,
-  onClickFactIssue,
-  directions,
-  activeDirectionId,
-  onClickDirection,
-}: EditorPaneProps) {
-  const { editorMode, activeCouncilMemberId } = useAppStore();
-  const [editor, setEditor] = useState<Editor | null>(null);
+export interface WysiwygGuard {
+  /** The line the WYSIWYG editor would rewrite in the checked text, if any. */
+  rewrite: RewrittenLine | null;
+  /** Show the markdown editor (with a notice) although the stored mode is WYSIWYG. */
+  keepMarkdown: boolean;
+  /** An editor emitted this text (the writer's own typing: never re-checked). */
+  emitted: (value: string) => void;
+  /** The writer chose to edit the checked text visually anyway. */
+  editVisually: () => void;
+}
 
-  const activeSuggestion = useMemo(() => {
-    if (activeSuggestionId == null || !suggestions) return null;
-    return suggestions.find((s) => s.id === activeSuggestionId) ?? null;
-  }, [activeSuggestionId, suggestions]);
+/**
+ * Whether the stored WYSIWYG mode is safe for `content`. Checked when the
+ * script loads, when the mode switches and when text arrives from outside
+ * (a restore); never while the writer types.
+ */
+export function useWysiwygGuard(content: string, editorMode: EditorMode): WysiwygGuard {
+  /**
+   * Last text either editor emitted since the last check. Any other `content`
+   * came from outside (load, restore), even text the writer typed earlier
+   * (restoring the version they saved it in).
+   */
+  const [emitted, setEmitted] = useState<string | null>(null);
+  /** The text checked against the WYSIWYG round trip, and the mode it was checked in. */
+  const [checked, setChecked] = useState({ content, mode: editorMode });
+  /** Text the writer chose to edit visually despite the notice. */
+  const [visualAnyway, setVisualAnyway] = useState<string | null>(null);
 
-  const activeCouncilMember = useMemo(() => {
-    if (!activeCouncilMemberId) return DEFAULT_COUNCIL_MEMBERS[0] ?? null;
-    return DEFAULT_COUNCIL_MEMBERS.find((m) => m.id === activeCouncilMemberId) ?? DEFAULT_COUNCIL_MEMBERS[0] ?? null;
-  }, [activeCouncilMemberId]);
+  if (editorMode !== checked.mode || (content !== emitted && content !== checked.content)) {
+    setChecked({ content, mode: editorMode });
+    if (emitted !== null) setEmitted(null);
+  }
 
-  const handleClose = useCallback(() => {
-    onClickSuggestion?.(null);
-  }, [onClickSuggestion]);
+  const rewrite = useMemo(
+    () => (checked.mode === "wysiwyg" ? findWysiwygRewrite(checked.content) : null),
+    [checked]
+  );
+  const checkedContent = checked.content;
+  const editVisually = useCallback(() => setVisualAnyway(checkedContent), [checkedContent]);
 
-  const handleEditorReady = useCallback((ed: Editor | null) => {
-    setEditor(ed);
-  }, []);
+  return {
+    rewrite,
+    keepMarkdown: rewrite !== null && visualAnyway !== checkedContent,
+    emitted: setEmitted,
+    editVisually,
+  };
+}
 
-  if (editorMode === "markdown") {
-    return <MarkdownSourceEditor value={content} onChange={onChange} />;
+/**
+ * WYSIWYG (with highlights) or raw markdown, per the stored editor mode. A
+ * script with markdown the WYSIWYG editor would rewrite (images, task
+ * checkboxes, footnotes, inline HTML...) stays in the markdown editor, with a
+ * notice, unless the writer chooses to edit it visually anyway. The stored
+ * mode preference is left alone.
+ */
+export function EditorPane({ content, onChange, annotations, onAnnotationClick, onEditorReady, overlay }: EditorPaneProps) {
+  const editorMode = useAppStore((s) => s.editorMode);
+  const { rewrite, keepMarkdown, emitted, editVisually } = useWysiwygGuard(content, editorMode);
+
+  const handleChange = useCallback(
+    (value: string) => {
+      emitted(value);
+      onChange(value);
+    },
+    [emitted, onChange]
+  );
+
+  if (editorMode === "markdown" || keepMarkdown) {
+    return (
+      <>
+        {keepMarkdown && rewrite && (
+          <div
+            role="status"
+            className="mx-4 mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-stone-100 px-3 py-2 text-xs leading-relaxed text-stone-700"
+          >
+            <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+              Kept in markdown so nothing gets rewritten: the visual editor can&apos;t keep line {rewrite.line}
+              {rewrite.text && (
+                <>
+                  {" "}
+                  (<code className="font-mono text-[11px] text-stone-800">{shorten(rewrite.text)}</code>)
+                </>
+              )}{" "}
+              as written. Note highlights show only in the visual editor.
+            </p>
+            <Button variant="outline" size="xs" onClick={editVisually}>
+              Edit visually anyway
+            </Button>
+          </div>
+        )}
+        <MarkdownSourceEditor value={content} onChange={handleChange} />
+      </>
+    );
   }
 
   return (
     <div className="tiptap-editor-container relative">
       <RichEditor
         value={content}
-        onChange={onChange}
-        suggestions={suggestions}
-        activeSuggestionId={activeSuggestionId}
-        onClickSuggestion={onClickSuggestion}
-        factIssues={factIssues}
-        activeFactIssueId={activeFactIssueId}
-        onClickFactIssue={onClickFactIssue}
-        directions={directions}
-        activeDirectionId={activeDirectionId}
-        onClickDirection={onClickDirection}
-        onEditorReady={handleEditorReady}
+        onChange={handleChange}
+        annotations={annotations}
+        onAnnotationClick={onAnnotationClick}
+        onEditorReady={onEditorReady}
       />
-      <CouncilFeedbackCard
-        editor={editor}
-        suggestion={activeSuggestion}
-        councilMember={activeCouncilMember}
-        onAccept={onAcceptSuggestion ?? (() => {})}
-        onDismiss={onDismissSuggestion ?? (() => {})}
-        onClose={handleClose}
-      />
+      {overlay}
     </div>
   );
+}
+
+function shorten(text: string, max = 60): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }

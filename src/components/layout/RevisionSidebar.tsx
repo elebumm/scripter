@@ -1,137 +1,175 @@
 "use client";
 
-import { FileText, PenLine, ListChecks, Wand2 } from "lucide-react";
-import { useAppStore } from "@/stores/app-store";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import type { ReactNode } from "react";
+import { Sparkles } from "lucide-react";
+import { CouncilRoster } from "@/components/council/CouncilRoster";
+import { NotesList } from "@/components/council/NotesList";
+import { ContextEditor } from "@/components/editor/ContextEditor";
+import type { CouncilController } from "@/hooks/useCouncil";
+import type { NotesController } from "@/hooks/useNotes";
+import type { DraftSaveState } from "@/hooks/useScript";
+import type { WorkspaceMode } from "./AppHeader";
 
-interface RevisionSidebarProps {
-  scriptTitle?: string;
-  pendingSuggestionsCount?: number;
-  isRunning?: boolean;
-  onGoToDrafts?: () => void;
+export interface DraftStatus {
+  draftNumber: number;
+  saveState: DraftSaveState;
+  spokenWords: number;
+  /** "m:ss" */
+  runtime: string;
+  /** "m:ss", or null when the script has no target length. */
+  targetRuntime: string | null;
 }
 
-const SIDEBAR_MODES = [
-  { id: "drafts" as const, label: "DRAFTS", icon: FileText, comingSoon: false, isDraftsLink: true },
-  { id: "revision" as const, label: "REVISION", icon: PenLine, comingSoon: false, isDraftsLink: false },
-  { id: "beat-sheet" as const, label: "BEAT SHEET", icon: ListChecks, comingSoon: true, isDraftsLink: false },
-  { id: "orchestrator" as const, label: "ORCHESTRATOR", icon: Wand2, comingSoon: true, isDraftsLink: false },
-];
+const SAVE_LABEL: Record<DraftSaveState, string> = {
+  saved: "saved",
+  unsaved: "unsaved",
+  saving: "saving…",
+  error: "not saved",
+};
 
-export function RevisionSidebar({
-  scriptTitle,
-  pendingSuggestionsCount = 0,
-  isRunning = false,
-  onGoToDrafts,
-}: RevisionSidebarProps) {
-  const { activeMode, setActiveMode } = useAppStore();
-
+function SectionTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
-    <aside className="fixed right-0 top-14 bottom-0 w-80 z-30 bg-stone-50/80 backdrop-blur-2xl flex flex-col">
-      {/* Project title */}
-      <div className="px-6 pt-8 pb-6">
-        <h2
-          className="text-xs font-bold tracking-widest uppercase text-stone-800"
-          style={{ fontFamily: "var(--font-cabinet)" }}
-        >
-          {scriptTitle || "Untitled Script"}
-        </h2>
-        <p
-          className="text-[11px] text-stone-400 mt-1"
-          style={{ fontFamily: "var(--font-inter)" }}
-        >
-          Zen Canvas Studio
-        </p>
+    <div className="flex items-center gap-2 px-1">
+      <h3
+        className="flex-1 text-[10px] font-bold tracking-widest uppercase text-stone-600"
+        style={{ fontFamily: "var(--font-inter)" }}
+      >
+        {children}
+      </h3>
+      {aside}
+    </div>
+  );
+}
+
+/** "Draft n · saved · N spoken words · ~m:ss of ~m:ss target" */
+export function StatusLine({ status }: { status: DraftStatus }) {
+  const parts = [
+    `Draft ${status.draftNumber}`,
+    SAVE_LABEL[status.saveState],
+    `${status.spokenWords.toLocaleString("en-US")} spoken words`,
+    status.targetRuntime ? `~${status.runtime} of ~${status.targetRuntime} target` : `~${status.runtime}`,
+  ];
+  // Not a live region: it changes on nearly every word typed. Autosave
+  // failures are announced by their toast.
+  return (
+    <p
+      className={`px-1 text-[11px] leading-relaxed ${status.saveState === "error" ? "text-rose-700" : "text-stone-600"}`}
+      style={{ fontFamily: "var(--font-inter)" }}
+    >
+      {parts.join(" · ")}
+    </p>
+  );
+}
+
+interface RevisionSidebarProps {
+  mode: WorkspaceMode;
+  /** Body for Beat Sheet mode. */
+  beatSheet: ReactNode;
+  status: DraftStatus;
+  council: CouncilController;
+  /** Out of the tab order and hidden from assistive tech (the synthesis panel covers it). */
+  inert?: boolean;
+  onConsult: () => void;
+  onOpenSynthesis: () => void;
+  brief: {
+    context: string;
+    onChange: (context: string) => void;
+    onCommit: () => void;
+    /** Target length in words (null = none). */
+    targetLength: number | null;
+    onTargetLengthChange: (words: number | null) => void;
+  };
+  notes: NotesController;
+  activeNoteId: number | null;
+  onSelectNote: (id: number) => void;
+  /** Fact notes section (list + fact-check status). */
+  facts: ReactNode;
+}
+
+/** The right-hand column of the script page. */
+export function RevisionSidebar({
+  mode,
+  beatSheet,
+  status,
+  council,
+  inert = false,
+  onConsult,
+  onOpenSynthesis,
+  brief,
+  notes,
+  activeNoteId,
+  onSelectNote,
+  facts,
+}: RevisionSidebarProps) {
+  return (
+    <aside
+      aria-label={mode === "revision" ? "Revision" : "Beat sheet"}
+      inert={inert}
+      aria-hidden={inert || undefined}
+      className="fixed right-0 top-14 bottom-0 w-80 z-30 bg-stone-50/85 backdrop-blur-2xl border-l border-stone-200/70 flex flex-col"
+      style={{ fontFamily: "var(--font-switzer)" }}
+    >
+      <div className="px-4 pt-4 pb-2">
+        <StatusLine status={status} />
       </div>
 
-      {/* Mode navigation */}
-      <nav className="px-3 space-y-1">
-        {SIDEBAR_MODES.map((mode) => {
-          const Icon = mode.icon;
-          const isActive = activeMode === mode.id;
-
-          if (mode.comingSoon) {
-            return (
-              <Tooltip key={mode.id}>
-                <TooltipTrigger asChild>
-                  <div
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl text-stone-400 cursor-default"
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span
-                      className="text-xs font-medium tracking-wider"
-                      style={{ fontFamily: "var(--font-inter)" }}
-                    >
-                      {mode.label}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  <p>Coming soon</p>
-                </TooltipContent>
-              </Tooltip>
-            );
-          }
-
-          return (
-            <button
-              key={mode.id}
-              onClick={() => {
-                if (mode.isDraftsLink && onGoToDrafts) {
-                  onGoToDrafts();
-                } else {
-                  setActiveMode(mode.id);
-                }
-              }}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl w-full text-left transition-colors ${
-                isActive && !mode.isDraftsLink
-                  ? "bg-stone-800 text-white"
-                  : "text-stone-500 hover:bg-stone-100"
-              }`}
+      {mode === "beat-sheet" ? (
+        // BeatSheet brings its own gutter and scrolls its list internally.
+        <div className="flex min-h-0 flex-1 flex-col pt-2">{beatSheet}</div>
+      ) : (
+        <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-6">
+          <section className="space-y-2" aria-labelledby="council-heading">
+            <SectionTitle
+              aside={
+                <button
+                  type="button"
+                  onClick={onOpenSynthesis}
+                  className="relative inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-stone-700 hover:bg-white hover:text-stone-900"
+                  aria-label={council.hasUnseen ? "Open synthesis (new results)" : "Open synthesis"}
+                >
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  Open synthesis
+                  {council.hasUnseen && (
+                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-rose-600" aria-hidden="true" />
+                  )}
+                </button>
+              }
             >
-              <Icon className="h-4 w-4" />
-              <span
-                className="text-xs font-medium tracking-wider"
-                style={{ fontFamily: "var(--font-inter)" }}
-              >
-                {mode.label}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
+              <span id="council-heading">Council</span>
+            </SectionTitle>
+            <CouncilRoster council={council} />
+          </section>
 
-      {/* Spacer */}
-      <div className="flex-1" />
+          <section className="space-y-2" aria-labelledby="notes-heading">
+            <SectionTitle>
+              <span id="notes-heading">Notes</span>
+            </SectionTitle>
+            <NotesList
+              groups={notes.groups}
+              personas={council.personas}
+              activeId={activeNoteId}
+              loading={notes.loading}
+              error={notes.error}
+              onSelect={onSelectNote}
+              onConsult={council.isRunning ? undefined : onConsult}
+              onRetry={() => void notes.refresh()}
+            />
+          </section>
 
-      {/* Revision Stats card at bottom */}
-      {pendingSuggestionsCount > 0 && (
-        <div className="px-4 pb-6">
-          <div className="rounded-xl bg-white p-4">
-            <h3
-              className="text-[10px] font-bold tracking-widest uppercase text-stone-500 mb-2"
-              style={{ fontFamily: "var(--font-inter)" }}
-            >
-              Revision Stats
-            </h3>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-stone-600">Active Suggestions</span>
-              <span className="text-xs font-semibold text-stone-800">
-                {pendingSuggestionsCount}
-              </span>
-            </div>
-            {isRunning && (
-              <div className="mt-2">
-                <div className="h-1 bg-stone-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-stone-600 rounded-full animate-pulse w-2/3" />
-                </div>
-              </div>
-            )}
-          </div>
+          <section className="space-y-2" aria-labelledby="facts-heading">
+            <SectionTitle>
+              <span id="facts-heading">Fact notes</span>
+            </SectionTitle>
+            {facts}
+          </section>
+
+          <ContextEditor
+            context={brief.context}
+            onChange={brief.onChange}
+            onCommit={brief.onCommit}
+            targetLength={brief.targetLength}
+            onTargetLengthChange={brief.onTargetLengthChange}
+          />
         </div>
       )}
     </aside>

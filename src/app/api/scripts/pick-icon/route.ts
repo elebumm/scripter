@@ -1,83 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { ensureDb } from "@/lib/db/init";
 import { db } from "@/lib/db";
-import { scripts, scriptVersions } from "@/lib/db/schema";
-import { eq, desc, isNull } from "drizzle-orm";
+import { scripts } from "@/lib/db/schema";
+import { getLatestVersion, getScript } from "@/lib/db/queries/scripts";
 import { pickIconForScript } from "@/lib/llm/pick-icon";
+import { hasApiKey } from "@/lib/llm/providers";
+import { errorMessage, jsonError } from "@/lib/stream/ndjson";
+
+const schema = z.object({ scriptId: z.number().int().positive() });
 
 /**
- * POST /api/scripts/pick-icon
- * Body: { scriptId: number } — picks icon for one script
- * Body: { backfill: true } — picks icons for all scripts missing one
+ * POST /api/scripts/pick-icon {scriptId} → {scriptId, icon}
+ * Picks a card icon once (called when a script is created) and saves it.
+ * icon is null when there was nothing to go on or no known icon came back.
  */
 export async function POST(req: NextRequest) {
-  await ensureDb();
+  ensureDb();
+  const parsed = schema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return jsonError("scriptId is required");
+  const { scriptId } = parsed.data;
 
-  const body = await req.json();
+  const script = getScript(scriptId);
+  if (!script) return jsonError("Script not found", 404);
+  if (!hasApiKey()) return jsonError("OPENROUTER_API_KEY is not set", 503);
 
-  if (body.backfill) {
-    // Backfill all scripts without an icon
-    const scriptsWithoutIcon = db
-      .select({ id: scripts.id, title: scripts.title })
-      .from(scripts)
-      .where(isNull(scripts.icon))
-      .all();
-
-    const results: { id: number; icon: string | null }[] = [];
-
-    for (const s of scriptsWithoutIcon) {
-      // Get content preview
-      const ver = db
-        .select({ content: scriptVersions.content })
-        .from(scriptVersions)
-        .where(eq(scriptVersions.scriptId, s.id))
-        .orderBy(desc(scriptVersions.version))
-        .limit(1)
-        .get();
-
-      const preview = ver?.content?.slice(0, 500) ?? "";
-      const icon = await pickIconForScript(s.title, preview);
-
-      if (icon) {
-        db.update(scripts).set({ icon }).where(eq(scripts.id, s.id)).run();
-      }
-
-      results.push({ id: s.id, icon });
-    }
-
-    return NextResponse.json({ updated: results.length, results });
+  const content = script.draftContent ?? getLatestVersion(scriptId)?.content ?? "";
+  let icon: string | null;
+  try {
+    icon = await pickIconForScript({ title: script.title, context: script.context, content }, req.signal);
+  } catch (err) {
+    return jsonError(`Couldn't pick an icon: ${errorMessage(err)}`, 502);
   }
 
-  // Single script
-  const { scriptId } = body;
-  if (!scriptId) {
-    return NextResponse.json({ error: "scriptId required" }, { status: 400 });
-  }
-
-  const script = db
-    .select({ id: scripts.id, title: scripts.title })
-    .from(scripts)
-    .where(eq(scripts.id, scriptId))
-    .get();
-
-  if (!script) {
-    return NextResponse.json({ error: "Script not found" }, { status: 404 });
-  }
-
-  const ver = db
-    .select({ content: scriptVersions.content })
-    .from(scriptVersions)
-    .where(eq(scriptVersions.scriptId, scriptId))
-    .orderBy(desc(scriptVersions.version))
-    .limit(1)
-    .get();
-
-  const preview = ver?.content?.slice(0, 500) ?? "";
-  const icon = await pickIconForScript(script.title, preview);
-
-  if (icon) {
-    db.update(scripts).set({ icon }).where(eq(scripts.id, scriptId)).run();
-  }
-
+  if (icon) db.update(scripts).set({ icon }).where(eq(scripts.id, scriptId)).run();
   return NextResponse.json({ scriptId, icon });
 }

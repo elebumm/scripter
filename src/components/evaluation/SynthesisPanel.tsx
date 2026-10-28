@@ -1,195 +1,299 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Clock, BarChart3, MessageSquare, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MessageSquare, RotateCcw, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { MasterSummaryCard } from "./MasterSummaryCard";
-import { CritiqueCard } from "./CritiqueCard";
-import { EvaluationHistory } from "./EvaluationHistory";
-import { ScoreTrendChart } from "./ScoreTrendChart";
-import type { ModelEvalState } from "@/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import type { CouncilController } from "@/hooks/useCouncil";
+import { useRuns } from "@/hooks/useRuns";
+import { useTrends } from "@/hooks/useTrends";
+import { LiveProgress } from "./LiveProgress";
+import { RunHistory } from "./RunHistory";
+import { SynthesisView } from "./SynthesisView";
+import { TrendsChart } from "./TrendsChart";
+import { useNow } from "./useNow";
+import { useFocusHandoff } from "./useFocusHandoff";
+import { SectionLabel } from "./ScoreBits";
+import { canSynthesizeRun, droppedNotesNotice } from "./view-model";
+
+/** The parts of the council controller the panel reads. */
+export type SynthesisPanelCouncil = Pick<
+  CouncilController,
+  | "personas"
+  | "lenses"
+  | "phase"
+  | "isRunning"
+  | "runId"
+  | "synthesis"
+  | "partialSynthesis"
+  | "error"
+  | "lastNotes"
+  | "canRetrySynthesis"
+  | "hasUnseen"
+  | "markSeen"
+  | "start"
+  | "stop"
+  | "retryLens"
+  | "retrySynthesis"
+>;
 
 interface SynthesisPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  modelStates: Record<string, ModelEvalState>;
-  masterSummary: ModelEvalState;
-  isRunning: boolean;
-  completedCount: number;
-  totalCount: number;
-  onRetryModel: (modelId: string) => void;
-  onReEvaluate: () => void;
-  scriptId: number | null;
+  scriptId: number;
+  council: SynthesisPanelCouncil;
 }
 
-export function SynthesisPanel({
-  open,
-  onOpenChange,
-  modelStates,
-  masterSummary,
-  isRunning,
-  completedCount,
-  totalCount,
-  onRetryModel,
-  onReEvaluate,
-  scriptId,
-}: SynthesisPanelProps) {
-  const [view, setView] = useState<"current" | "history" | "trends">("current");
-  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
-  const panelRef = useRef<HTMLDivElement>(null);
+type Tab = "synthesis" | "history" | "trends";
 
-  // Auto-refresh history when eval completes
-  const prevRunningRef = useRef(isRunning);
-  useEffect(() => {
-    if (prevRunningRef.current && !isRunning) {
-      setHistoryRefreshKey((k) => k + 1);
-    }
-    prevRunningRef.current = isRunning;
-  }, [isRunning]);
+/** Radix surfaces that sit above the panel and own Esc while open. */
+const OPEN_SURFACE_SELECTOR =
+  '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"], [role="menu"][data-state="open"]';
 
-  // Switch back to current when a new eval starts
-  useEffect(() => {
-    if (isRunning) setView("current");
-  }, [isRunning]);
+export function SynthesisPanel({ open, onOpenChange, scriptId, council }: SynthesisPanelProps) {
+  const [tab, setTab] = useState<Tab>("synthesis");
+  const now = useNow();
+  const panelRef = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // Escape key to close
+  // A new run always brings the Synthesis tab forward (adjusting state during
+  // render, not in an effect).
+  const [wasRunning, setWasRunning] = useState(council.isRunning);
+  if (wasRunning !== council.isRunning) {
+    setWasRunning(council.isRunning);
+    if (council.isRunning) setTab("synthesis");
+  }
+
+  // Opening moves focus into the panel; closing hands it back to whatever
+  // opened it, unless the writer has already moved focus elsewhere.
+  useFocusHandoff(open, headingRef, panelRef);
+
+  // Esc closes the panel only when it's the topmost surface: dialogs, menus
+  // and popovers handle Esc first (Radix calls preventDefault) and window
+  // listeners run after document ones.
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector(OPEN_SURFACE_SELECTOR)) return;
+      onOpenChange(false);
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onOpenChange]);
 
-  const models = Object.values(modelStates);
-  const isSummarizing = masterSummary.status === "streaming";
-  const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
-  const hasResults = models.some((m) => m.status !== "idle") || masterSummary.status !== "idle";
+  const { markSeen, hasUnseen } = council;
+  useEffect(() => {
+    if (open && hasUnseen) markSeen();
+  }, [open, hasUnseen, markSeen]);
 
-  const handleBack = useCallback(() => setView("current"), []);
+  const refreshKey = council.synthesis?.summaryId ?? null;
+  const runs = useRuns(scriptId, { enabled: open && tab === "history", refreshKey });
+  const trends = useTrends(scriptId, { enabled: open && tab === "trends", refreshKey });
+
+  // Failed lenses can be retried from the synthesis view only when it shows
+  // this session's run: a retry continues that run, on its version. A lens
+  // whose persona is gone (negative id, restored from History) can't be.
+  const showsCurrentRun = council.runId !== null && council.synthesis?.runId === council.runId;
+  const retrySlugs = useMemo(
+    () =>
+      showsCurrentRun
+        ? new Set(council.lenses.filter((l) => l.status === "error" && l.personaId > 0).map((l) => l.personaSlug))
+        : new Set<string>(),
+    [showsCurrentRun, council.lenses]
+  );
+  const personaIdBySlug = useMemo(() => new Map(council.personas.map((p) => [p.slug, p.id])), [council.personas]);
+  // The saved synthesis carries its note report (also after a reload); older
+  // ones don't, so this session's last run falls back to the stream's counts.
+  const noteReport =
+    council.synthesis?.noteReport ??
+    (showsCurrentRun && council.lastNotes?.runId === council.runId ? council.lastNotes : null);
+  const notesNotice = noteReport ? droppedNotesNotice(noteReport) : null;
+
+  const consult = () => {
+    void council.start().catch(() => undefined);
+  };
+  const retry = (personaId: number) => {
+    void council.retryLens(personaId).catch(() => undefined);
+  };
+  const retrySynthesis = () => {
+    void council.retrySynthesis().catch(() => undefined);
+  };
+
+  const ranThisSession = council.lenses.some((l) => l.status !== "idle");
+  const showLive = council.isRunning || ((council.phase === "error" || council.canRetrySynthesis) && ranThisSession);
+  const partialOverview = typeof council.partialSynthesis?.overview === "string" ? council.partialSynthesis.overview : null;
+
+  // History can write the missing synthesis of the newest run (e.g. one that
+  // failed before a reload).
+  const selected = runs.selectedRun;
+  const canSynthesizeSelected = canSynthesizeRun(selected, runs.runs[0], council.synthesis?.runId ?? null);
 
   return (
-    <div
+    <aside
       ref={panelRef}
-      className={`fixed top-6 bottom-6 right-6 w-[400px] z-40 glass-panel flex flex-col transition-transform duration-300 ease-out ${
-        open ? "translate-x-0" : "translate-x-[calc(100%+24px)]"
-      }`}
+      role="complementary"
+      aria-label="Synthesis"
+      aria-hidden={!open}
+      inert={!open}
+      className={cn(
+        "glass-panel fixed bottom-4 right-4 top-[4.5rem] z-40 flex w-[min(440px,calc(100vw-2rem))] flex-col ring-1 ring-stone-200/80",
+        "motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out",
+        open ? "translate-x-0" : "pointer-events-none translate-x-[calc(100%+2rem)]"
+      )}
       style={{ fontFamily: "var(--font-switzer)" }}
     >
-      {/* Header */}
-      <div className="px-5 pt-5 pb-3 shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <MessageSquare className="h-5 w-5 text-stone-500" />
-            <h2 className="text-base font-semibold text-stone-800">The Synthesis</h2>
-          </div>
-          <div className="flex items-center gap-1">
-            {view === "current" && scriptId && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-full text-stone-400 hover:text-stone-600"
-                  onClick={() => setView("trends")}
-                  title="Score trends"
-                >
-                  <BarChart3 className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-full text-stone-400 hover:text-stone-600"
-                  onClick={() => setView("history")}
-                  title="History"
-                >
-                  <Clock className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full text-stone-400 hover:text-stone-600"
-              onClick={() => onOpenChange(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+      <header className="flex shrink-0 items-center justify-between gap-2 px-5 pb-2 pt-4">
+        <div className="flex items-center gap-2.5">
+          <MessageSquare className="h-5 w-5 text-stone-600" aria-hidden="true" />
+          <h2
+            ref={headingRef}
+            tabIndex={-1}
+            className="rounded text-base font-semibold text-stone-900 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-700"
+            style={{ fontFamily: "var(--font-cabinet)" }}
+          >
+            Synthesis
+          </h2>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-full text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+          onClick={() => onOpenChange(false)}
+          aria-label="Close synthesis"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </header>
 
-        {/* Progress bar */}
-        {isRunning && view === "current" && (
-          <div className="flex items-center gap-2 mt-3">
-            <Progress value={progressPercent} className="h-1.5 flex-1" />
-            <span className="text-[11px] text-stone-400 whitespace-nowrap">
-              {isSummarizing
-                ? "Synthesizing..."
-                : `${completedCount}/${totalCount} models`}
-            </span>
-          </div>
-        )}
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="flex min-h-0 flex-1 flex-col gap-0">
+        <TabsList variant="line" className="mx-4 h-9 w-auto shrink-0 justify-start gap-4 border-b border-stone-200 px-1">
+          <TabsTrigger value="synthesis" className="flex-none px-0 text-stone-600 data-[state=active]:text-stone-900">
+            Synthesis
+          </TabsTrigger>
+          <TabsTrigger value="history" className="flex-none px-0 text-stone-600 data-[state=active]:text-stone-900">
+            History
+          </TabsTrigger>
+          <TabsTrigger value="trends" className="flex-none px-0 text-stone-600 data-[state=active]:text-stone-900">
+            Trends
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Body */}
-      {view === "history" ? (
-        <EvaluationHistory
-          scriptId={scriptId}
-          onBack={handleBack}
-          refreshKey={historyRefreshKey}
-        />
-      ) : view === "trends" ? (
-        <ScrollArea className="flex-1 min-h-0">
-          <ScoreTrendChart scriptId={scriptId} onBack={handleBack} />
-        </ScrollArea>
-      ) : (
-        <ScrollArea className="flex-1 min-h-0">
-          {!hasResults ? (
-            <div className="flex items-center justify-center h-64 text-sm text-stone-400">
-              Run an evaluation to see results
-            </div>
-          ) : (
-            <div className="px-4 pb-4 space-y-3">
-              {/* Master Summary */}
-              <MasterSummaryCard summary={masterSummary} />
-
-              {/* Council Critiques */}
-              {models.length > 0 && (
-                <>
-                  <div className="pt-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
-                      Council Critiques
-                    </span>
+        <TabsContent value="synthesis" className="min-h-0 flex-1">
+          <ScrollArea className="h-full">
+            <div className="px-4 py-4">
+              {council.error && !council.isRunning && (
+                <p role="alert" className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">
+                  {council.error}
+                </p>
+              )}
+              {showLive ? (
+                <div className="space-y-6">
+                  <LiveProgress
+                    lenses={council.lenses}
+                    phase={council.phase}
+                    isRunning={council.isRunning}
+                    partialOverview={partialOverview}
+                    onStop={() => council.stop()}
+                    onRetry={retry}
+                    onRetrySynthesis={council.canRetrySynthesis ? retrySynthesis : undefined}
+                  />
+                  {!council.isRunning && council.synthesis && (
+                    <section className="space-y-3 border-t border-stone-200 pt-4" aria-label="Last saved synthesis">
+                      <SectionLabel>Last saved synthesis</SectionLabel>
+                      <SynthesisView synthesis={council.synthesis} now={now} />
+                    </section>
+                  )}
+                </div>
+              ) : council.synthesis ? (
+                <div className="space-y-4">
+                  {notesNotice && (
+                    <div role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+                      <p className="font-semibold">{notesNotice.title}</p>
+                      <p className="mt-0.5 text-xs leading-relaxed">{notesNotice.detail}</p>
+                    </div>
+                  )}
+                  <SynthesisView
+                    synthesis={council.synthesis}
+                    now={now}
+                    retry={{
+                      slugs: retrySlugs,
+                      disabled: council.isRunning,
+                      onRetry: (slug) => {
+                        const id = personaIdBySlug.get(slug);
+                        if (id != null) retry(id);
+                      },
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100">
+                    <Users className="h-5 w-5 text-stone-600" aria-hidden="true" />
                   </div>
-                  {models.map((m) => (
-                    <CritiqueCard
-                      key={m.modelId}
-                      state={m}
-                      onRetry={onRetryModel}
-                    />
-                  ))}
-                </>
+                  <p className="text-sm font-semibold text-stone-900">The council hasn&apos;t read this script yet</p>
+                  <p className="text-xs leading-relaxed text-stone-600">
+                    Each lens reads your draft on its own, scores it and leaves notes on your own words. The synthesis
+                    brings them together here. Nothing in your script is changed.
+                  </p>
+                  <Button className="mt-1 gap-2 rounded-xl" onClick={consult} disabled={council.isRunning}>
+                    <Users className="h-4 w-4" aria-hidden="true" />
+                    Consult the council
+                  </Button>
+                </div>
               )}
             </div>
-          )}
-        </ScrollArea>
-      )}
+          </ScrollArea>
+        </TabsContent>
 
-      {/* Footer */}
-      {view === "current" && hasResults && !isRunning && (
-        <div className="px-4 py-3 shrink-0">
-          <Button
-            onClick={onReEvaluate}
-            variant="outline"
-            className="w-full gap-2 rounded-xl border-stone-200 text-stone-600 hover:text-stone-800 hover:bg-stone-50"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Re-consult Council
-          </Button>
-        </div>
-      )}
-    </div>
+        <TabsContent value="history" className="min-h-0 flex-1">
+          <ScrollArea className="h-full">
+            <div className="px-4 py-4">
+              <RunHistory
+                runs={runs.runs}
+                loading={runs.loading}
+                error={runs.error}
+                onReload={runs.reload}
+                selectedRunId={runs.selectedRunId}
+                onSelect={runs.selectRun}
+                selectedRun={runs.selectedRun}
+                runLoading={runs.runLoading}
+                runError={runs.runError}
+                latestRunId={council.synthesis?.runId ?? null}
+                now={now}
+                synthesize={
+                  canSynthesizeSelected && selected
+                    ? { disabled: council.isRunning, onSynthesize: () => void council.retrySynthesis(selected).catch(() => undefined) }
+                    : undefined
+                }
+              />
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="trends" className="min-h-0 flex-1">
+          <ScrollArea className="h-full">
+            <div className="px-4 py-4">
+              <TrendsChart points={trends.points} loading={trends.loading} error={trends.error} onReload={trends.reload} />
+            </div>
+          </ScrollArea>
+        </TabsContent>
+      </Tabs>
+
+      <footer className="shrink-0 border-t border-stone-200/80 px-4 py-3">
+        <Button
+          onClick={consult}
+          disabled={council.isRunning}
+          variant="outline"
+          className="w-full gap-2 rounded-xl border-stone-300 bg-white text-stone-800 hover:bg-stone-50 hover:text-stone-900"
+        >
+          <RotateCcw className="h-4 w-4" aria-hidden="true" />
+          {council.isRunning ? "The council is reading…" : council.synthesis ? "Consult again" : "Consult the council"}
+        </Button>
+        <p className="mt-1.5 text-center text-[11px] text-stone-500">Reviews the whole script</p>
+      </footer>
+    </aside>
   );
 }

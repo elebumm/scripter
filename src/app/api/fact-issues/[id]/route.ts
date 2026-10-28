@@ -1,32 +1,19 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { ensureDb } from "@/lib/db/init";
-import { updateFactIssueStatus } from "@/lib/db/queries/fact-issues";
+import { FACT_NOTE_STATUSES, setFactNoteStatus } from "@/lib/db/queries/fact-issues";
+import { jsonError } from "@/lib/stream/ndjson";
 
-export async function PATCH(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+const schema = z.object({ status: z.enum(FACT_NOTE_STATUSES) });
+
+/** PATCH /api/fact-issues/:id {status: "pending" | "acknowledged" | "dismissed"} → FactNote */
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   ensureDb();
-  const { id } = await params;
-  const body = await req.json();
-  const { status } = body;
-
-  if (!["acknowledged", "dismissed", "corrected"].includes(status)) {
-    return new Response(
-      JSON.stringify({ error: "Invalid status" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  const updated = updateFactIssueStatus(Number(id), status);
-
-  if (!updated) {
-    return new Response(
-      JSON.stringify({ error: "Fact issue not found" }),
-      { status: 404, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  return new Response(JSON.stringify(updated), {
-    headers: { "Content-Type": "application/json" },
-  });
+  const id = Number((await params).id);
+  if (!Number.isInteger(id) || id <= 0) return jsonError("Invalid fact note id");
+  const parsed = schema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return jsonError("status must be pending, acknowledged or dismissed");
+  const note = setFactNoteStatus(id, parsed.data.status);
+  if (!note) return jsonError("Fact note not found", 404);
+  return NextResponse.json(note);
 }

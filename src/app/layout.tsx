@@ -30,8 +30,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Zen Canvas",
-  description: "AI-powered script writing sanctuary",
+  title: "Scripter",
+  description: "Write video scripts in your own words, with a council of AI readers for notes, beats and fact-checks.",
 };
 
 export default function RootLayout({
@@ -41,8 +41,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="light">
+      {/* Browser extensions add attributes to <body> before hydration. */}
       <body
         className={`${cabinetGrotesk.variable} ${switzer.variable} ${inter.variable} antialiased`}
+        suppressHydrationWarning
       >
         <TooltipProvider>{children}</TooltipProvider>
         <Toaster />

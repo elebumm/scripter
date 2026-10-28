@@ -71,6 +71,20 @@
       "when": 1773953688556,
       "tag": "0009_chunky_the_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793124171702,
+      "tag": "0010_council_beats_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793141241492,
+      "tag": "0011_clear_legacy_titles",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const scripts = sqliteTable("scripts", {
@@ -15,6 +15,8 @@ export const scripts = sqliteTable("scripts", {
     .notNull()
     .default(false),
   templateDescription: text("template_description"),
+  draftContent: text("draft_content"), // autosave target; versions are immutable snapshots
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),
@@ -23,6 +25,7 @@ export const scripts = sqliteTable("scripts", {
     .default(sql`(datetime('now'))`),
 });
 
+// Immutable once created: never UPDATE content.
 export const scriptVersions = sqliteTable("script_versions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   scriptId: integer("script_id")
@@ -62,11 +65,19 @@ export const evaluations = sqliteTable("evaluations", {
   structuredResult: text("structured_result"),
   errorMessage: text("error_message"),
   durationMs: integer("duration_ms"),
+  runId: text("run_id"), // groups one council run (critiques + summary); null for legacy rows
+  personaId: integer("persona_id").references(() => evaluationProfiles.id, {
+    onDelete: "set null",
+  }),
+  tokensIn: integer("tokens_in"),
+  tokensOut: integer("tokens_out"),
+  costUsd: real("cost_usd"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),
 });
 
+// Council personas (rows with a slug). Legacy profiles have no slug and stay inactive.
 export const evaluationProfiles = sqliteTable("evaluation_profiles", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
@@ -75,6 +86,13 @@ export const evaluationProfiles = sqliteTable("evaluation_profiles", {
   isDefault: integer("is_default", { mode: "boolean" })
     .notNull()
     .default(false),
+  slug: text("slug").unique(),
+  description: text("description").notNull().default(""),
+  modelId: text("model_id"), // model registry slug, see src/lib/llm/models.ts
+  icon: text("icon"),
+  color: text("color"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  position: integer("position").notNull().default(0),
   createdAt: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),
@@ -103,6 +121,54 @@ export const suggestions = sqliteTable("suggestions", {
     .default(sql`(datetime('now'))`),
 });
 
+// Anchored diagnoses of the writer's own text. Never carry replacement wording.
+export const notes = sqliteTable("notes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scriptId: integer("script_id")
+    .notNull()
+    .references(() => scripts.id, { onDelete: "cascade" }),
+  versionId: integer("version_id")
+    .notNull()
+    .references(() => scriptVersions.id, { onDelete: "cascade" }),
+  runId: text("run_id"),
+  anchorText: text("anchor_text").notNull(),
+  issue: text("issue").notNull(),
+  why: text("why").notNull().default(""),
+  question: text("question"),
+  category: text("category").notNull().default("other"),
+  priority: text("priority").notNull().default("medium"),
+  personaSlugs: text("persona_slugs").notNull().default("[]"),
+  sourceModels: text("source_models").notNull().default("[]"),
+  status: text("status").notNull().default("open"), // "open" | "addressed" | "dismissed"
+  statusChangedAt: text("status_changed_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+// The writer's structural plan. AI may propose beats; the writer owns them.
+export const beats = sqliteTable("beats", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scriptId: integer("script_id")
+    .notNull()
+    .references(() => scripts.id, { onDelete: "cascade" }),
+  position: integer("position").notNull(),
+  title: text("title").notNull(),
+  purpose: text("purpose").notNull().default(""),
+  writerNotes: text("writer_notes").notNull().default(""),
+  targetSeconds: integer("target_seconds"),
+  status: text("status").notNull().default("planned"), // "planned" | "drafted" | "cut"
+  source: text("source").notNull().default("writer"), // "ai" | "writer"
+  anchorText: text("anchor_text"),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+// Legacy: tag UI was removed; tables kept so existing data survives.
 export const tags = sqliteTable("tags", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull().unique(),
@@ -158,6 +224,10 @@ export const factIssues = sqliteTable("fact_issues", {
   versionId: integer("version_id")
     .notNull()
     .references(() => scriptVersions.id, { onDelete: "cascade" }),
+  // Null for legacy issues written without web search; those are never shown.
+  factCheckId: integer("fact_check_id").references(() => factChecks.id, {
+    onDelete: "cascade",
+  }),
   claimText: text("claim_text").notNull(),
   verdict: text("verdict").notNull(), // "verified" | "inaccurate" | "misleading" | "unverifiable" | "exaggeration-ok"
   accuracy: integer("accuracy"), // 0-100

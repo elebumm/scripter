@@ -1,187 +1,145 @@
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { db } from "./index";
+import type Database from "better-sqlite3";
+import { db, getSqlite } from "./index";
 import path from "path";
-import { eq } from "drizzle-orm";
-import { evaluationProfiles, scripts } from "./schema";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { evaluationProfiles, scripts, scriptVersions } from "./schema";
+import { PERSONA_SEEDS } from "@/lib/llm/personas";
+import { countSpokenWords } from "@/lib/utils/reading-time";
 
-function getMigrationsFolder(): string {
-  // In packaged Electron app, migrations are bundled alongside the app
-  try {
-    const { app } = require("electron");
-    if (app && !app.isPackaged === false) {
-      // In asar, resources are at process.resourcesPath
-      const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
-      if (resourcesPath) {
-        const asarPath = path.join(resourcesPath, "drizzle");
-        const fs = require("fs");
-        if (fs.existsSync(asarPath)) return asarPath;
-      }
-    }
-  } catch {
-    // Not in Electron
-  }
-
+export function defaultMigrationsFolder(): string {
   return path.join(process.cwd(), "drizzle");
 }
 
-export function runMigrations() {
-  migrate(db, { migrationsFolder: getMigrationsFolder() });
+/**
+ * Apply pending drizzle migrations with foreign keys OFF.
+ *
+ * drizzle runs every pending migration inside one BEGIN/COMMIT, and SQLite
+ * ignores `PRAGMA foreign_keys` inside a transaction, so the
+ * `PRAGMA foreign_keys=OFF` that drizzle-kit writes around a table rebuild is
+ * a no-op there. With foreign keys on, the rebuild's `DROP TABLE` would
+ * cascade-delete every child row (all versions, notes, evaluations...). The
+ * pragma is therefore switched here, outside drizzle's transaction.
+ */
+export function runMigrations(migrationsFolder: string = defaultMigrationsFolder()) {
+  const sqlite = getSqlite();
+  sqlite.pragma("foreign_keys = OFF");
+  try {
+    if (sqlite.pragma("foreign_keys", { simple: true }) !== 0) {
+      throw new Error("[db] couldn't switch foreign keys off (open transaction?); refusing to migrate");
+    }
+    const appliedBefore = appliedMigrationCount(sqlite);
+    migrate(db, { migrationsFolder });
+    // Nothing applied: any violation predates this run, so don't blame a migration.
+    if (appliedMigrationCount(sqlite) === appliedBefore) return;
+    // The migration has committed by now, so this reports rather than
+    // prevents; the pre-migration snapshot is the way back.
+    const violations = sqlite.pragma("foreign_key_check") as unknown[];
+    if (violations.length > 0) {
+      console.error(
+        `[db] ${violations.length} foreign key violation(s) after migrating. ` +
+          "The pre-migration snapshot under backups/pre-migration holds the earlier state.",
+        violations.slice(0, 20)
+      );
+    }
+  } finally {
+    sqlite.pragma("foreign_keys = ON");
+  }
 }
 
-const DEFAULT_SYSTEM_PROMPT = `# YouTube Script Evaluator — System Prompt
+function appliedMigrationCount(sqlite: Database.Database): number {
+  const hasTable = sqlite
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'")
+    .get();
+  return hasTable ? (sqlite.prepare("SELECT count(*) AS n FROM __drizzle_migrations").get() as { n: number }).n : 0;
+}
 
-You are a script evaluator for a tech YouTube channel that produces documentary-style long-form videos (20-25 minutes). Your job is to evaluate draft scripts and provide actionable, honest feedback.
-
-## About the Channel
-
-The creator makes story-driven documentaries about technology. These are NOT tutorials, NOT video essays, NOT listicles. They are narratives — closer to a documentary film than a typical YouTube tech video. The channel's competitive advantage is storytelling, not information density.
-
-Videos that perform well on this channel share these traits:
-- A central human character whose decisions drive the story forward
-- Escalating stakes where each section raises new tension before resolving the previous one
-- Technical concepts explained *inside the action*, not as standalone lessons
-- Comedy and personality woven into the narration — the tone is a curious enthusiast, not a lecturer
-- Philosophical themes that emerge naturally from events rather than being explicitly stated
-- A closing that recontextualizes the entire story rather than summarizing it
-
-## Evaluation Criteria
-
-Score each criterion from 1-10. Provide a 2-3 sentence justification for each score. Be honest — a 7 is a good score. Reserve 9-10 for genuinely exceptional work. Do not inflate scores to be nice.
-
-### 1. Hook & Opening (0:00 - 2:00)
-Does the first 60-90 seconds create genuine curiosity? Would a viewer who clicked on this thumbnail stay past the first minute? A strong hook poses a question the viewer didn't know they had, or presents a contrast that feels surprising. A weak hook front-loads information the viewer hasn't been given a reason to care about yet.
-
-### 2. Story Engine
-Every strong video has an engine — a repeating mechanism that generates forward momentum. In a problem-chain video, the engine is "solution creates new problem." In a character-driven video, the engine is "decision leads to consequence." Does this script have a clear engine? Does it stall at any point? Specifically flag any section longer than 90 seconds that doesn't contain an event, decision, revelation, or escalation.
-
-### 3. Character & Humanity
-Are the people in this story rendered as humans or as vehicles for information? Look for: specific details that make characters feel real (not just their job title), moments of vulnerability or failure, comedy that comes from character rather than from jokes inserted by the writer. Flag any section where a character is being praised without complication for more than 30 seconds — audiences distrust hagiography.
-
-### 4. Technical Clarity
-When the script explains a technical concept, does it do so inside the story or does it pause the narrative to teach? The best tech explanations in this format feel like you're learning something *because* you need to understand it to follow what happens next. Flag any explanation that could be cut without losing story coherence — that's a sign it's exposition, not narrative.
-
-### 5. Pacing & Rhythm
-Read the script out loud (or simulate doing so). Does it have variation — fast sections and slow sections, dense sections and breathing room? Are there any runs of 2+ minutes that maintain the same energy level without a shift? Flag sections where the script feels like it's "listing" things (deployments, features, accomplishments) rather than *moving* through events. Also flag any place where the script feels like it's wrapping up but isn't actually ending — false endings kill retention.
-
-### 6. Thematic Coherence
-Does the script have a clear thematic throughline, and does it trust the audience to identify it? The best documentaries plant themes early and pay them off later without ever explicitly stating "this is the theme." Flag any moment where the script explains its own point — e.g., "and this is why X matters" or "the irony here is..." The audience should feel the irony, not be told about it.
-
-### 7. Tone & Voice
-Does this sound like a specific person talking, or could it have been written by anyone? The channel's voice is: conversational but not sloppy, enthusiastic but not performative, opinionated but fair. It uses sentence fragments for rhythm. It uses comedy as a pacing tool, not as a crutch. Flag any line that sounds generic, overly formal, or like it came from a Wikipedia article.
-
-### 8. Visual Direction
-A YouTube script is not just words — it's a blueprint for a video. Does the script give enough visual direction that an editor could build the video without guessing? Are there visual cues during the most important moments? Specifically check: are the final 25% of the script's visual directions as detailed as the first 25%? Scripts often front-load visual cues and go dark in the back half.
-
-### 9. Ending & Payoff
-Does the ending recontextualize the story or just summarize it? A great ending makes the viewer rethink something from earlier in the video. A weak ending restates the thesis or trails off. Also evaluate: does the script have a natural place for a call to action that doesn't feel bolted on? The CTA should feel like part of the video's voice, not a contractual obligation.
-
-### 10. Intellectual Honesty
-Does the script present a fair picture, or does it have a bias it isn't acknowledging? Are there counterarguments or complications that are being glossed over? Does the script make any claims that feel unverified or exaggerated? Would an expert in this subject watch this video and feel it was fair? This is the most important criterion for long-term channel credibility.
-
-## Rules
-
-- Do not be sycophantic. The creator wants honest feedback, not encouragement.
-- Do not suggest adding content that would make the video longer unless something is genuinely missing. YouTube scripts almost always need trimming, not expansion.
-- Do not suggest structural changes just to demonstrate you have opinions. Only flag structural issues if they would cause a viewer to click away.
-- Judge the script as a *video*, not as a *document*. Things that look odd on paper (sentence fragments, abrupt cuts, incomplete thoughts) may be deliberate pacing choices that work when spoken aloud.
-- When you identify a problem, suggest a fix. "This section is slow" is not useful. "This section is slow because it explains X before the audience has a reason to care — move it after Y" is useful.
-- If you are unsure whether something is a problem or a stylistic choice, say so. Don't penalize ambiguity.
-- The overall score is NOT an average of the individual scores. It is your holistic assessment of whether this script would perform well as a published YouTube video on this channel.`;
-
-const DEFAULT_CRITERIA_WEIGHTS = JSON.stringify({
-  "Hook & Opening": 9,
-  "Story Engine": 9,
-  "Character & Humanity": 8,
-  "Technical Clarity": 7,
-  "Pacing & Rhythm": 8,
-  "Thematic Coherence": 7,
-  "Tone & Voice": 8,
-  "Visual Direction": 6,
-  "Ending & Payoff": 8,
-  "Intellectual Honesty": 8,
-});
-
+/**
+ * Idempotent seed run on every startup:
+ * - council personas, inserted by slug when missing (never overwritten: the
+ *   writer edits them in Settings);
+ * - legacy profiles (no slug) are kept for history but switched off;
+ * - script templates, once.
+ * The channel context that used to live in the "Default Profile" prompt is
+ * now CHANNEL_CONTEXT in src/lib/llm/prompts.ts.
+ */
 export function seedDefaults() {
-  const existing = db.select().from(evaluationProfiles).all();
-
-  // Migrate existing "First Draft Review" to new default profile
-  const oldDefault = existing.find((p) => p.name === "First Draft Review");
-  if (oldDefault) {
-    db.update(evaluationProfiles)
-      .set({
-        name: "Default Profile",
-        systemPrompt: DEFAULT_SYSTEM_PROMPT,
-        criteriaWeights: DEFAULT_CRITERIA_WEIGHTS,
-      })
-      .where(eq(evaluationProfiles.id, oldDefault.id))
-      .run();
-  }
-
-  // Always try to seed templates (idempotent — checks for existing)
+  seedPersonas();
+  deactivateLegacyProfiles();
   seedTemplates();
+}
 
-  if (existing.length > 0) return;
-
+function seedPersonas() {
+  const existing = new Set(
+    db
+      .select({ slug: evaluationProfiles.slug })
+      .from(evaluationProfiles)
+      .where(isNotNull(evaluationProfiles.slug))
+      .all()
+      .map((r) => r.slug)
+  );
+  const missing = PERSONA_SEEDS.filter((p) => !existing.has(p.slug));
+  if (missing.length === 0) return;
   db.insert(evaluationProfiles)
-    .values([
-      {
-        name: "Default Profile",
-        systemPrompt: DEFAULT_SYSTEM_PROMPT,
-        criteriaWeights: DEFAULT_CRITERIA_WEIGHTS,
-        isDefault: true,
-      },
-      {
-        name: "Final Polish",
-        systemPrompt: `You are a meticulous video script editor doing a final polish review. The script is nearly done — focus on:
-- Word-level precision and economy
-- Transition smoothness between sections
-- Redundancy elimination
-- Rhythm and cadence of spoken delivery
-- Any remaining awkward phrasing
-- CTA strength and placement
-
-Be very specific. Quote exact phrases that need changing and provide exact replacements. Use callout blocks for suggestions.`,
-        criteriaWeights: JSON.stringify({
-          "Clarity & Conciseness": 10,
-          "Pacing & Rhythm": 9,
-          "Tone & Voice": 8,
-          "Structure & Flow": 7,
-          "Engagement & Retention": 6,
-        }),
+    .values(
+      missing.map((p) => ({
+        slug: p.slug,
+        name: p.name,
+        description: p.description,
+        systemPrompt: p.systemPrompt,
+        criteriaWeights: JSON.stringify(p.criteriaWeights),
+        modelId: p.modelSlug,
+        icon: p.icon,
+        color: p.color,
+        position: p.position,
+        isActive: true,
         isDefault: false,
-      },
-      {
-        name: "Pacing Check Only",
-        systemPrompt: `You are a video pacing specialist. Analyze ONLY the pacing and rhythm of this script. Ignore content quality — focus entirely on:
-- Section length balance
-- Transition timing
-- Density of information per section
-- Breathing room and pauses
-- Hook-to-content ratio
-- Estimated spoken timing per section
-
-Provide a section-by-section timing breakdown and flag any sections that feel too dense, too sparse, or awkwardly transitioned.`,
-        criteriaWeights: JSON.stringify({
-          "Pacing & Rhythm": 10,
-          "Structure & Flow": 8,
-        }),
-        isDefault: false,
-      },
-    ])
+      }))
+    )
+    .onConflictDoNothing({ target: evaluationProfiles.slug })
     .run();
+}
+
+function deactivateLegacyProfiles() {
+  db.update(evaluationProfiles)
+    .set({ isActive: false })
+    .where(and(isNull(evaluationProfiles.slug), eq(evaluationProfiles.isActive, true)))
+    .run();
+}
+
+function insertTemplate(
+  title: string,
+  content: string,
+  options: { context: string; targetLength: number; templateDescription: string }
+) {
+  const wordCount = countSpokenWords(content);
+  db.transaction((tx) => {
+    const script = tx
+      .insert(scripts)
+      .values({
+        title,
+        currentVersion: 1,
+        context: options.context,
+        targetLength: options.targetLength,
+        isTemplate: true,
+        templateDescription: options.templateDescription,
+      })
+      .returning()
+      .get();
+    tx.insert(scriptVersions).values({ scriptId: script.id, version: 1, content, wordCount }).run();
+  });
 }
 
 function seedTemplates() {
   const existing = db
-    .select()
+    .select({ id: scripts.id })
     .from(scripts)
     .where(eq(scripts.isTemplate, true))
+    .limit(1)
     .all();
   if (existing.length > 0) return;
 
-  const { createScript } = require("./queries/scripts");
-
-  createScript("YouTube Short", `# [Title]
+  insertTemplate("YouTube Short", `# [Title]
 
 ## Hook (0:00 - 0:15)
 <!-- Open with a bold claim, surprising fact, or visual punch. You have ~5 seconds before they scroll. -->
@@ -200,11 +158,10 @@ function seedTemplates() {
 `, {
     context: "Short-form vertical video (~60 seconds). Hook-heavy, single takeaway format.",
     targetLength: 150,
-    isTemplate: true,
     templateDescription: "Hook-heavy short-form video (~60s). One takeaway, punchy delivery.",
   });
 
-  createScript("Long-form Video", `# [Title]
+  insertTemplate("Long-form Video", `# [Title]
 
 ## Cold Open (0:00 - 1:30)
 <!-- Drop the viewer into the middle of the story. No context. Make them need to understand what happens next. -->
@@ -272,11 +229,10 @@ function seedTemplates() {
 `, {
     context: "Documentary-style long-form YouTube video (20-25 min). Story-driven, 3-act structure.",
     targetLength: 3000,
-    isTemplate: true,
     templateDescription: "Full documentary-style video (20-25 min). Cold open, 3-act story structure, CTA.",
   });
 
-  createScript("Podcast Script", `# [Episode Title]
+  insertTemplate("Podcast Script", `# [Episode Title]
 
 ## Pre-Roll / Intro (0:00 - 2:00)
 <!-- Casual intro. Set the tone. Tease the topic without giving away the punchline. -->
@@ -334,11 +290,10 @@ Hey everyone, welcome back to [Show Name]. Today we're talking about...
 `, {
     context: "Podcast episode (~30-45 min spoken). Conversational tone with interview prompts.",
     targetLength: 2000,
-    isTemplate: true,
     templateDescription: "Conversational podcast episode (~30-45 min). Interview prompts and discussion segments.",
   });
 
-  createScript("Tutorial / How-To", `# [Tutorial Title]
+  insertTemplate("Tutorial / How-To", `# [Tutorial Title]
 
 ## Intro — What We're Building (0:00 - 1:30)
 <!-- Show the finished result first. Let the viewer decide if this is worth their time. -->
@@ -413,7 +368,6 @@ By the end of this video, you'll know how to...
 `, {
     context: "Step-by-step tutorial video (~10-15 min). Visual cue markers for editor. Clear numbered steps.",
     targetLength: 1500,
-    isTemplate: true,
     templateDescription: "Step-by-step tutorial (~10-15 min). Numbered steps with visual cue markers.",
   });
 }
