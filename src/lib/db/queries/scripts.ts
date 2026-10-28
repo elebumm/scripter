@@ -308,7 +308,13 @@ export interface VersionSavePlan {
   create: boolean;
   /** Version number of the result (new or existing). */
   version: number;
-  /** The draft equals what is now saved, so it can be cleared. */
+  /**
+   * The draft equals what is now saved, so it can be cleared. A different
+   * draft is kept because it may be newer (text typed during the save, or
+   * another tab's): the client lands older draft writes before saving a
+   * version (DraftSaver.saveVersion), and if one of them failed, its retry
+   * replaces the draft.
+   */
   clearDraft: boolean;
 }
 

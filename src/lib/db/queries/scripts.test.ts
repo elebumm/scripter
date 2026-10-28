@@ -137,6 +137,18 @@ describe("scripts and versions", () => {
     expect(getSqlite().prepare("SELECT draft_content AS d FROM scripts WHERE id = ?").get(id)).toEqual({ d: null });
   });
 
+  it("keeps a draft that differs from the saved version: it may be newer text", () => {
+    // The client lands every older draft write before it saves a version
+    // (DraftSaver.saveVersion), so a different stored draft is text typed
+    // during the save (or another tab's), which clearing would lose.
+    const { id } = createScript("Draft");
+    saveVersion(id, "One.");
+    updateScript(id, { draftContent: "One. Two. Three." });
+    saveVersion(id, "One. Two.");
+    expect(getScriptDetail(id)?.content).toBe("One. Two. Three.");
+    expect(getScriptDetail(id)?.latestVersion?.content).toBe("One. Two.");
+  });
+
   it("does not bump updated_at for archive or icon changes", () => {
     const { id } = createScript("Stamp");
     getSqlite().prepare("UPDATE scripts SET updated_at = '2020-01-01 00:00:00' WHERE id = ?").run(id);

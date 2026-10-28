@@ -177,6 +177,26 @@ export class DraftSaver {
     return this.chain;
   }
 
+  /**
+   * Save the writer's current text as a version with `save`, in line with
+   * the draft writes: every write up to that text lands first, and writes
+   * queued meanwhile (text typed or undone during the save) run after it.
+   * The server clears the stored draft only when it equals the version and
+   * keeps a different one, which may be newer; in that order a stored draft
+   * is never older than the version, and a NULL draft ("same as the latest
+   * version") is never overtaken by a version saved after it.
+   */
+  saveVersion<T>(save: (markdown: string) => Promise<T>): Promise<T> {
+    const markdown = this.latest;
+    void this.flush();
+    const saved = this.chain.then(() => save(markdown));
+    this.chain = saved.then(
+      () => undefined,
+      () => undefined
+    );
+    return saved;
+  }
+
   /** The script was opened again while text is unsaved: try again soon. */
   resume(): void {
     if (!this.hasUnsaved || this.timer !== null) return;
@@ -407,13 +427,12 @@ export function useScript(scriptId: number): ScriptController {
   );
 
   const saveVersion = useCallback(async (opts?: { quiet?: boolean }): Promise<SavedVersion | null> => {
-    const markdown = saver?.latest ?? "";
-    if (!markdown.trim()) {
+    if (!saver || !saver.latest.trim()) {
       if (!opts?.quiet) toast("Write something first. There's nothing to save yet.");
       return null;
     }
     try {
-      const { version, created } = await api.saveVersion(scriptId, markdown);
+      const { version, created } = await saver.saveVersion((markdown) => api.saveVersion(scriptId, markdown));
       setData((d) =>
         d ? { ...d, latestVersion: version, script: { ...d.script, currentVersion: version.version } } : d
       );

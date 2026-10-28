@@ -190,6 +190,140 @@ describe("DraftSaver", () => {
     expect(server.stored).toBe("typed just before leaving");
   });
 
+  describe("saveVersion", () => {
+    it("lands the waiting draft before the version, so the server can clear it", async () => {
+      const { server, deps } = fakeServer();
+      const saver = new DraftSaver("v1", deps);
+      saver.change("v2"); // Ctrl+S before the 2 s autosave
+      const seen: { version: string; storedDraft: string | null }[] = [];
+      await saver.saveVersion(async (markdown) => {
+        seen.push({ version: markdown, storedDraft: server.stored });
+      });
+      expect(seen).toEqual([{ version: "v2", storedDraft: "v2" }]);
+      expect(server.writes).toEqual(["v2"]);
+      expect(saver.hasUnsaved).toBe(false);
+      // The debounce has nothing left to write.
+      await vi.advanceTimersByTimeAsync(DRAFT_SAVE_DELAY_MS);
+      expect(server.writes).toEqual(["v2"]);
+    });
+
+    it("waits for an older write still on its way, then saves the newest text", async () => {
+      const { server, deps } = fakeServer();
+      let release!: () => void;
+      const slow: DraftSaverDeps = {
+        ...deps,
+        write: async (markdown) => {
+          if (markdown === "v2") await new Promise<void>((r) => (release = r));
+          await deps.write(markdown);
+        },
+      };
+      const saver = new DraftSaver("v1", slow);
+      saver.change("v2");
+      await vi.advanceTimersByTimeAsync(DRAFT_SAVE_DELAY_MS); // "v2" is in flight
+      saver.change("v3");
+      const order: string[] = [];
+      const saved = saver.saveVersion(async (markdown) => {
+        order.push(`version ${markdown} (draft ${server.stored})`);
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(order).toEqual([]); // not before the older write lands
+      release();
+      await saved;
+      expect(server.writes).toEqual(["v2", "v3"]);
+      expect(order).toEqual(["version v3 (draft v3)"]);
+    });
+
+    it("saves the text the writer had when asked, not text typed while it waits", async () => {
+      const { server, deps } = fakeServer();
+      const saver = new DraftSaver("v1", deps);
+      saver.change("v2");
+      const saved = saver.saveVersion(async (markdown) => markdown);
+      saver.change("v2 and more");
+      expect(await saved).toBe("v2");
+      expect(saver.hasUnsaved).toBe(true);
+      await vi.advanceTimersByTimeAsync(DRAFT_SAVE_DELAY_MS);
+      expect(server.writes).toEqual(["v2", "v2 and more"]);
+      expect(saver.hasUnsaved).toBe(false);
+    });
+
+    /**
+     * The server's rules: a draft equal to the latest version is stored as
+     * NULL, and a version save clears the draft only when it equals it.
+     */
+    function versionedServer(firstVersion: string) {
+      const db = { versions: [firstVersion], draft: null as string | null };
+      const latest = () => db.versions[db.versions.length - 1];
+      let releasePost: (() => void) | null = null;
+      const deps: DraftSaverDeps = {
+        write: async (markdown) => {
+          db.draft = markdown === latest() ? null : markdown;
+        },
+        writeOnUnload: () => true,
+      };
+      const post = (markdown: string, hold = false) =>
+        new Promise<void>((resolve) => {
+          const land = () => {
+            if (markdown !== latest()) db.versions.push(markdown);
+            if (db.draft === markdown) db.draft = null;
+            resolve();
+          };
+          if (hold) releasePost = land;
+          else land();
+        });
+      return { db, deps, post, reload: () => db.draft ?? latest(), release: () => releasePost?.() };
+    }
+
+    it("runs writes queued during the save after it: undoing back to the saved text still sticks", async () => {
+      const server = versionedServer("A");
+      const saver = new DraftSaver("A", server.deps);
+      saver.change("A B");
+      const saved = saver.saveVersion((markdown) => server.post(markdown, true)); // Ctrl+S, slow POST
+      await vi.advanceTimersByTimeAsync(0);
+      expect(server.db.draft).toBe("A B");
+
+      saver.change("A"); // Ctrl+Z while the version is being saved
+      await vi.advanceTimersByTimeAsync(DRAFT_SAVE_DELAY_MS);
+      expect(saver.hasUnsaved).toBe(true); // the undo waits behind the version save
+
+      server.release();
+      await saved;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(server.db.versions).toEqual(["A", "A B"]);
+      expect(server.reload()).toBe("A");
+      expect(saver.hasUnsaved).toBe(false);
+    });
+
+    it("saves versions one after another, in the order they were asked for", async () => {
+      const server = versionedServer("A");
+      const saver = new DraftSaver("A", server.deps);
+      saver.change("A B");
+      const first = saver.saveVersion((markdown) => server.post(markdown, true));
+      saver.change("A B C");
+      const order: string[] = [];
+      const second = saver.saveVersion(async (markdown) => {
+        order.push(markdown);
+        await server.post(markdown);
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(order).toEqual([]); // waits for the first version
+      server.release();
+      await Promise.all([first, second]);
+      expect(server.db.versions).toEqual(["A", "A B", "A B C"]);
+      expect(server.reload()).toBe("A B C");
+    });
+
+    it("keeps autosaving after a failed version save", async () => {
+      const { server, deps } = fakeServer();
+      const saver = new DraftSaver("v1", deps);
+      saver.change("v2");
+      await expect(saver.saveVersion(() => Promise.reject(new Error("offline")))).rejects.toThrow("offline");
+      saver.change("v3");
+      await vi.advanceTimersByTimeAsync(DRAFT_SAVE_DELAY_MS);
+      expect(server.writes).toEqual(["v2", "v3"]);
+      expect(saver.state).toBe("saved");
+    });
+  });
+
   describe("unload", () => {
     it("has nothing to do when everything is saved", () => {
       const { server, deps } = fakeServer();
