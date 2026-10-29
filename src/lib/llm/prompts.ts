@@ -1,178 +1,302 @@
-const DEFAULT_CRITERIA = [
-  "Hook & Opening",
-  "Story Engine",
-  "Character & Humanity",
-  "Technical Clarity",
-  "Pacing & Rhythm",
-  "Thematic Coherence",
-  "Tone & Voice",
-  "Visual Direction",
-  "Ending & Payoff",
-  "Intellectual Honesty",
-];
+// Prompt text and pure prompt builders for the council (critique + synthesis).
+// Everything here is deterministic so it can be unit-tested without a model.
 
-function getStatusCalibration(scriptStatus?: string): string {
-  if (scriptStatus === "draft" || scriptStatus === "in-progress") {
-    const label = scriptStatus === "draft" ? "DRAFT" : "WORK IN PROGRESS";
-    return `\n\n## Script Status: ${label}
+import { renderRubric, criterionLabel, type CriteriaWeights } from "./rubric";
+import type { NoteCategory, PersonaCritique, Priority } from "./schemas";
+import { anchorExistsInMarkdown } from "@/lib/text/anchor";
 
-This script is not yet complete. Adjust your evaluation accordingly:
-- Focus on direction, structure, and potential rather than polish
-- Don't penalize missing sections, placeholder text, or incomplete endings
-- Score based on the quality of what IS written, not what's missing
-- Prioritize feedback that helps the author develop the strongest parts further
-- Note structural gaps as "areas to develop" rather than flaws\n`;
+/** Words per minute used to turn a word target into a spoken runtime. */
+const PROMPT_WPM = 155;
+
+/**
+ * Who the writer is and what their videos are. Moved here from the old
+ * seeded "Default Profile" so every lens and the synthesizer share it.
+ */
+export const CHANNEL_CONTEXT = `## The channel
+
+The writer makes long-form, story-driven documentaries about technology for YouTube, usually 20-25 minutes, narrated by the writer. They are not tutorials, listicles or video essays; they are closer to a documentary film than a typical tech video. The channel's edge is storytelling, not information density.
+
+Videos that work on this channel tend to have:
+- a central human character whose decisions drive the story forward;
+- escalating stakes, where each section raises a new tension before resolving the last one;
+- technical ideas explained inside the action, because the viewer needs them to follow what happens next, not as standalone lessons;
+- comedy and personality in the narration: a curious enthusiast, not a lecturer;
+- themes that emerge from events rather than being announced ("the irony here is…" tells instead of trusting the viewer);
+- an ending that recontextualises the whole story instead of summarising it, with a call to action that sounds like the rest of the video.
+
+How to read the script:
+- Judge it as a video, not a document: it will be read aloud over footage. Sentence fragments, abrupt cuts and unfinished thoughts can be deliberate pacing.
+- Text in [square brackets], HTML comments and callout blocks (> [!note] …) are production notes, not narration.
+- The first minute decides whether a viewer stays.
+- Scripts almost always need trimming, not expansion. Do not ask for more material unless something is genuinely missing.
+- Do not flag structure just to have an opinion; flag it when a viewer would feel it or click away.
+- If you can't tell whether something is a problem or a deliberate choice, say so instead of penalising it.
+- Be honest, not encouraging. The writer wants the truth, not reassurance.`;
+
+/** The non-negotiable "Your words only" contract, appended to every AI job that critiques the script. */
+export const YOUR_WORDS_ONLY = `## Your words only (non-negotiable)
+
+The writer writes every word of this script. Your job is to diagnose, never to write.
+- Anchor every note in the writer's own text: copy the passage verbatim (4-30 words from a single paragraph) so it can be highlighted. Never alter or invent anchor text.
+- Say what isn't working and why it matters to the viewer. You may add one short question that helps the writer find their own fix.
+- Never supply wording: no replacement lines, rewritten sentences, example phrasings, sample hooks, titles or transitions, and nothing like "try something like…", "e.g. …", "you could say…" or "rewrite it as…".
+- Never put text in quotation marks unless it is copied exactly from the script.
+- Describe what a passage needs to achieve, never the words that would achieve it.`;
+
+export const CRITIQUE_OUTPUT_BUDGET = `## Output
+
+Return only the structured object. Keep it tight; the writer reads every word.
+- summary: at most 120 words, your overall read through your lens.
+- criteria: every criterion exactly once, each with a 1-10 score and an observation of at most 40 words pointing at what earned the score.
+- overallScore: your holistic 1-10 judgement of the whole video, NOT an average of the criteria.
+- notes: 3-8, most important first. issue at most 40 words, why at most 40 words, optional question at most 25 words.
+- landed: 1-3 passages that work and should be protected, each with why at most 30 words.`;
+
+export interface BriefInput {
+  title: string | null | undefined;
+  context: string | null | undefined;
+  /** Target length in words (scripts.target_length). */
+  targetLength: number | null | undefined;
+}
+
+export interface PreviousNote {
+  anchorText: string;
+  issue: string;
+  status: "open" | "addressed" | "dismissed";
+  priority?: Priority | string;
+  category?: NoteCategory | string;
+}
+
+/** Map stored notes onto the prompt's view (issue + status only, never scores). */
+export function toPreviousNotes(
+  rows: Array<{ anchorText: string; issue: string; status: string; priority?: string; category?: string }>
+): PreviousNote[] {
+  return rows.map((r) => ({
+    anchorText: r.anchorText,
+    issue: r.issue,
+    status: r.status === "addressed" || r.status === "dismissed" ? r.status : "open",
+    priority: r.priority,
+    category: r.category,
+  }));
+}
+
+export interface CritiquePersona {
+  name: string;
+  systemPrompt: string;
+  criteriaWeights: CriteriaWeights | Record<string, number>;
+}
+
+/** YYYY-MM-DD in UTC. */
+export function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/** The writer's brief: title, target runtime and their own notes. */
+export function formatBrief({ title, context, targetLength }: BriefInput): string {
+  const lines: string[] = [`Title: ${title?.trim() || "Untitled script"}`];
+  if (targetLength && targetLength > 0) {
+    const minutes = Math.max(1, Math.round(targetLength / PROMPT_WPM));
+    lines.push(`Target length: about ${targetLength} spoken words (roughly ${minutes} minute${minutes === 1 ? "" : "s"} at ${PROMPT_WPM} words a minute)`);
   }
-  return "";
+  const notes = context?.trim();
+  lines.push(notes ? `Writer's brief and notes:\n${notes}` : "Writer's brief and notes: (none given)");
+  return lines.join("\n");
 }
 
-export function buildEvalPrompt(
-  systemPrompt: string | undefined,
-  criteriaWeights?: Record<string, number>,
-  scriptStatus?: string
-): string {
-  if (systemPrompt) return systemPrompt + getStatusCalibration(scriptStatus);
-
-  const criteria = DEFAULT_CRITERIA.map((c) => {
-    const weight = criteriaWeights?.[c];
-    return weight ? `- ${c} (weight: ${weight}/10)` : `- ${c}`;
-  }).join("\n");
-
-  return `You are an expert video script evaluator. Analyze the provided script and give concise, actionable feedback.
-
-Evaluate on these criteria:
-${criteria}
-
-## Response Format
-
-Be BRIEF. For each criterion, write 1-2 sentences max — a score and the key observation. Use this format:
-
-### Criterion Name: X/10
-One sentence on what works or doesn't. One concrete fix if needed.
-
-End with:
-### Overall: X/10
-Top 3 priority fixes (one line each).
-
-Keep your entire response under 400 words. The detailed data goes in the tool call, not the markdown.
-
-After your markdown, you MUST call the submit_evaluation tool with your structured scores and feedback. Include every criterion, numerical scores, and top 3 priorities.` + getStatusCalibration(scriptStatus);
+function oneLine(s: string, max = 400): string {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-export function buildSectionPrompt(
-  section: string,
-  fullScript: string,
-  systemPrompt?: string
-): string {
-  const basePrompt =
-    systemPrompt ||
-    `You are an expert video script evaluator. Focus your analysis on the selected section while considering the full script context.`;
+const STATUS_LABEL: Record<PreviousNote["status"], string> = {
+  open: "still open (the writer hasn't marked it)",
+  addressed: "the writer marked it addressed",
+  dismissed: "the writer DISMISSED it (disagrees) - never raise it again",
+};
 
-  return `${basePrompt}
-
-## Full Script Context
-${fullScript}
-
-## Section to Evaluate
-The user has selected the following section for focused evaluation:
-
----
-${section}
----
-
-Provide detailed feedback specifically on this section. Consider how it fits within the overall script flow. Use markdown formatting with callout blocks for key insights.`;
+/**
+ * "Issues raised last time": issue text and status only. Deliberately no
+ * scores, so every pass is scored from scratch.
+ */
+export function formatPreviousNotes(notes: PreviousNote[]): string {
+  if (notes.length === 0) return "";
+  const lines = notes.map((n) => {
+    const tags = [n.priority, n.category].filter(Boolean).join(", ");
+    return `- [${STATUS_LABEL[n.status]}]${tags ? ` (${tags})` : ""} at "${oneLine(n.anchorText, 240)}": ${oneLine(n.issue)}`;
+  });
+  return lines.join("\n");
 }
 
-export { getStatusCalibration };
+function scriptBlock(content: string): string {
+  return `<script>\n${content}\n</script>`;
+}
 
-export function formatPriorFeedback(
-  priorResult: string,
-  structuredResult?: string | null
-): string {
-  let feedbackBlock = "";
+/** Append the app-owned rules unless the (editable) persona prompt already carries them verbatim. */
+function withRules(personaPrompt: string): string {
+  const prompt = personaPrompt.trim();
+  return prompt.includes(YOUR_WORDS_ONLY) ? prompt : `${prompt}\n\n${YOUR_WORDS_ONLY}`;
+}
 
-  if (structuredResult) {
-    try {
-      const data = JSON.parse(structuredResult);
-      // Build compact score table from structured data
-      const scores: string[] = [];
-      if (data.criteria && Array.isArray(data.criteria)) {
-        for (const c of data.criteria) {
-          scores.push(`- ${c.name}: ${c.score}/10`);
-        }
-      }
-      if (data.overallScore !== undefined) {
-        scores.push(`- **Overall: ${data.overallScore}/10**`);
-      }
-      feedbackBlock += scores.join("\n");
+export interface CritiquePromptInput {
+  persona: CritiquePersona;
+  brief: BriefInput;
+  content: string;
+  /** The writer's selected passage for a section-only review. */
+  sectionOnly?: string | null;
+  /** Notes from the previous whole-script pass, with their statuses (a section review uses only the dismissed ones). */
+  previousNotes?: PreviousNote[];
+  today: Date;
+}
 
-      // Add top priorities
-      if (data.priorities && Array.isArray(data.priorities) && data.priorities.length > 0) {
-        feedbackBlock += "\n\nTop priorities from previous review:\n";
-        for (const p of data.priorities.slice(0, 5)) {
-          feedbackBlock += `- ${p}\n`;
-        }
-      }
-    } catch {
-      // Invalid JSON — fall back to raw markdown
-      feedbackBlock = priorResult.slice(0, 1500);
-      if (priorResult.length > 1500) {
-        feedbackBlock += "\n\n*(abbreviated)*";
-      }
+/** System prompt + user message for one persona's critique. */
+export function buildCritiquePrompt(input: CritiquePromptInput): { system: string; prompt: string } {
+  const { persona, brief, content, sectionOnly, previousNotes = [], today } = input;
+
+  const system = [
+    withRules(persona.systemPrompt),
+    CHANNEL_CONTEXT,
+    `## Rubric\n\nScore every criterion from 1 to 10 through your lens. Weigh the criteria marked for you more heavily in your notes and overall judgement, but score all of them honestly.\n\n${renderRubric(persona.criteriaWeights as CriteriaWeights)}`,
+    CRITIQUE_OUTPUT_BUDGET,
+    `Today's date is ${isoDate(today)}. Treat anything the script presents as recent relative to that date.`,
+  ].join("\n\n");
+
+  const parts: string[] = [`# Brief\n\n${formatBrief(brief)}`];
+  const section = sectionOnly?.trim();
+
+  if (section) {
+    // A focused pass: no "issues raised last time", but dismissals always apply.
+    const dismissed = previousNotes.filter((n) => n.status === "dismissed");
+    if (dismissed.length > 0) {
+      parts.push(
+        `# Issues the writer dismissed\n\nThe writer dismissed these notes on earlier passes because they disagree. Never raise them again.\n\n${formatPreviousNotes(dismissed)}`
+      );
     }
+  } else if (previousNotes.length > 0) {
+    parts.push(
+      `# Issues raised last time\n\nThe council's previous pass on an earlier draft raised these notes. Check each against this draft. In your summary, say briefly which ones this draft has resolved and which remain. Raise a remaining one again as a note only if it is still a real problem, anchored in the current text. Never raise a dismissed issue again.\n\n${formatPreviousNotes(previousNotes)}`
+    );
+  }
+
+  parts.push(`# Script\n\n${scriptBlock(content)}`);
+
+  if (section) {
+    parts.push(
+      `# Section to review\n\nThe writer asked for a review of this section only. Read the whole script for context, but score and critique this section: criteria that don't apply to a section on its own (such as the ending) are scored on how well the section sets them up. Every anchor must come from this section.\n\n<section>\n${section}\n</section>`
+    );
+    parts.push(`Review the section above through your lens as ${persona.name}.`);
   } else {
-    feedbackBlock = priorResult.slice(0, 1500);
-    if (priorResult.length > 1500) {
-      feedbackBlock += "\n\n*(abbreviated)*";
-    }
+    parts.push(`Review the whole script above through your lens as ${persona.name}.`);
   }
 
-  return `\n\n## Previous Evaluation Feedback (from your prior review of this script)\n\n${feedbackBlock}\n\nWhen evaluating, explicitly note:\n- Which issues from your previous feedback have been addressed\n- Which issues remain unresolved\n- Any new issues introduced since the last version`;
+  return { system, prompt: parts.join("\n\n") };
 }
 
-export const MASTER_SUMMARY_PROMPT = `You are a master script evaluation synthesizer. You have received evaluations of a video script from multiple AI models, including structured score data when available.
+// ---------------------------------------------------------------------------
+// Synthesis
 
-## Your Job
+export const SYNTHESIS_SYSTEM_PROMPT = `You are the council's editor. Several lenses, each a different persona running on a different model, reviewed the same draft independently. Your job is to merge their notes into one list the writer can work through and to write a short overview. The app computes the score table itself; you never produce scores.
 
-1. **Compare Scores Directly**: When structured scores are provided, compare numerical ratings per criterion across models. Note where models agree (scores within 1-2 points) and where they diverge (>2 point gap).
-2. **Identify Consensus**: What do the majority of models agree on? Reference specific score counts (e.g., "4 out of 5 models scored Hook below 7").
-3. **Flag Contradictions**: Where do models significantly disagree? Present the score spread and both perspectives, then give your recommendation.
-4. **Prioritize Actions**: Create a ranked list of the most impactful changes, weighing frequency across model priorities and score severity.
-5. **Synthesize Scores**: Present a score comparison table showing each model's score per criterion, plus the average.
+## How to merge
+- Combine notes that point at the same underlying problem into one, even when the lenses anchored them differently. List every lens that raised it in personaSlugs, using the slugs exactly as given.
+- Reuse an anchor exactly as a lens quoted it, and only when it is verbatim text from the script. Never write a new anchor that isn't copied from the script.
+- Rank by impact on the viewer: problems several lenses raised, or that would make a viewer click away, come first.
+- Keep disagreements visible: when lenses contradict each other, say so in the overview and name the lenses instead of averaging them away.
+- Don't invent issues no lens raised.
+- Issues raised last time: keep one only if this draft still has the problem (anchored in the current text). Never resurface a dismissed issue. Don't repeat an issue the writer marked addressed unless the problem is plainly still there.
+- 5-12 notes, most important first. issue at most 40 words, why at most 40 words, optional question at most 25 words.
 
-## Input Format
+## Overview
+Markdown, at most 250 words: where the lenses agree, where they disagree (name the lenses), and what the writer should work on first. Diagnosis only.`;
 
-You may receive:
-- **Structured data** (JSON with scores per criterion, overall score, and priorities) — use this for precise comparison
-- **Raw markdown** (free-form evaluation text) — extract insights qualitatively when structured data is unavailable
+export interface SynthesisLensInput {
+  slug: string;
+  name: string;
+  modelName: string;
+  critique: PersonaCritique;
+}
 
-## Output Format
+function formatLensForSynthesis(lens: SynthesisLensInput): string {
+  const c = lens.critique;
+  const notes = c.notes.length
+    ? c.notes
+        .map((n) => {
+          const q = n.question ? ` Question: ${oneLine(n.question)}` : "";
+          return `- [${n.priority}, ${n.category}] anchor: "${oneLine(n.anchorText, 300)}"\n  issue: ${oneLine(n.issue)}\n  why: ${oneLine(n.why)}${q}`;
+        })
+        .join("\n")
+    : "- (no notes)";
+  const landed = c.landed.length
+    ? c.landed.map((l) => `- "${oneLine(l.anchorText, 300)}": ${oneLine(l.why)}`).join("\n")
+    : "- (none)";
+  return `## Lens ${lens.slug}: ${lens.name} (${lens.modelName})\n\nOverall read:\n${c.summary.trim()}\n\nNotes (slug ${lens.slug}):\n${notes}\n\nWhat landed:\n${landed}`;
+}
 
-Format your response in markdown with clear sections:
-- ## Score Comparison (table of criterion x model scores, with averages)
-- ## Consensus Points (backed by score data)
-- ## Contradictions & Recommendations (note the score spread)
-- ## Priority Action Items (numbered, most impactful first, with score-based justification)
-- ## Overall Assessment (with averaged overall score)
+export interface ScoreTableLike {
+  criterionId: string;
+  scores: Record<string, number>;
+  average: number | null;
+}
 
-Use callout blocks:
-- > [!tip] for consensus strengths (high scores across models)
-- > [!warning] for consensus weaknesses (low scores across models)
-- > [!info] for contradictions (divergent scores)
-- > [!example] for top-priority rewrites
+function formatScoreTable(slugs: string[], rows: ScoreTableLike[], overall: { scores: Record<string, number>; average: number | null }): string {
+  const header = `| Criterion | ${slugs.join(" | ")} | Avg |\n|---|${slugs.map(() => "---").join("|")}|---|`;
+  const body = rows.map(
+    (r) => `| ${criterionLabel(r.criterionId)} | ${slugs.map((s) => r.scores[s] ?? "-").join(" | ")} | ${r.average ?? "-"} |`
+  );
+  body.push(`| Overall | ${slugs.map((s) => overall.scores[s] ?? "-").join(" | ")} | ${overall.average ?? "-"} |`);
+  return [header, ...body].join("\n");
+}
 
-Be concise but thorough. Focus on actionable, specific feedback backed by data.
+export interface SynthesisPromptInput {
+  brief: BriefInput;
+  content: string;
+  sectionOnly?: string | null;
+  lenses: SynthesisLensInput[];
+  failedLenses: string[];
+  scoreTable: ScoreTableLike[];
+  overall: { scores: Record<string, number>; average: number | null };
+  previousNotes?: PreviousNote[];
+  today: Date;
+}
 
-## Script Edit Suggestions
+export function buildSynthesisPrompt(input: SynthesisPromptInput): { system: string; prompt: string } {
+  const { brief, content, sectionOnly, lenses, failedLenses, scoreTable, overall, previousNotes = [], today } = input;
 
-After writing your full markdown summary, you MUST call the submit_suggestions tool with specific text edit suggestions extracted from all model evaluations. Guidelines:
+  const system = [
+    SYNTHESIS_SYSTEM_PROMPT,
+    CHANNEL_CONTEXT,
+    YOUR_WORDS_ONLY,
+    `Today's date is ${isoDate(today)}.`,
+  ].join("\n\n");
 
-- **originalText**: Quote EXACT text from the original script — verbatim, case-sensitive, including all punctuation and whitespace. Copy-paste directly from the script. Include enough surrounding context to uniquely identify the location.
-- **suggestedText**: Provide the improved replacement text.
-- **reasoning**: 1-2 sentences explaining why this change improves the script.
-- **priority**: high = critical fix that significantly impacts quality, medium = notable improvement, low = minor polish.
-- **category**: Match the evaluation area (hook, clarity, pacing, engagement, structure, tone, cta, visual-cues, other).
-- **sourceModels**: List which models' feedback supports each suggestion.
-- Aim for 5-10 suggestions, prioritized by impact.
-- Focus on content improvements (wording, structure, flow), not markdown formatting.
-- Each suggestion should be a self-contained edit — applying one should not break others.`;
+  const slugs = lenses.map((l) => l.slug);
+  const parts: string[] = [`# Brief\n\n${formatBrief(brief)}`];
+
+  parts.push(
+    `# Lenses\n\n${lenses.map((l) => `- ${l.slug}: ${l.name} (${l.modelName})`).join("\n")}${
+      failedLenses.length ? `\n\nThese lenses failed and are not part of this pass: ${failedLenses.join(", ")}.` : ""
+    }\n\nScores computed by the app (for reference; don't restate the table):\n\n${formatScoreTable(slugs, scoreTable, overall)}`
+  );
+
+  parts.push(`# Critiques\n\n${lenses.map(formatLensForSynthesis).join("\n\n---\n\n")}`);
+
+  // A section pass only replaces notes inside the section (the rest are kept
+  // as they are), so it only sees those, plus every dismissal.
+  const section = sectionOnly?.trim();
+  const relevant = section
+    ? previousNotes.filter((n) => n.status === "dismissed" || anchorExistsInMarkdown(section, n.anchorText))
+    : previousNotes;
+  if (relevant.length > 0) {
+    parts.push(`# Issues raised last time\n\n${formatPreviousNotes(relevant)}`);
+  }
+
+  parts.push(`# Script\n\n${scriptBlock(content)}`);
+
+  if (section) {
+    parts.push(
+      `# Reviewed section\n\nThis pass reviewed one section only; keep the notes to it. Every anchor must come from this section.\n\n<section>\n${section}\n</section>`
+    );
+  }
+
+  parts.push("Merge the critiques into the overview and the note list.");
+  return { system, prompt: parts.join("\n\n") };
+}

@@ -1,184 +1,116 @@
 "use client";
 
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import { Markdown } from "@tiptap/markdown";
-import Placeholder from "@tiptap/extension-placeholder";
-import LinkExtension from "@tiptap/extension-link";
-import { Table } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table-row";
-import { TableCell } from "@tiptap/extension-table-cell";
-import { TableHeader } from "@tiptap/extension-table-header";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import { common, createLowlight } from "lowlight";
 import { useEffect, useRef } from "react";
-import { useAppStore } from "@/stores/app-store";
-import { RichEditorToolbar } from "./RichEditorToolbar";
-import type { Suggestion, FactIssueWithStaleness } from "@/types";
-import {
-  SuggestionHighlightExtension,
-  setSuggestions,
-  setActiveSuggestion,
-  findSuggestionAtPos,
-} from "./suggestions-extension";
-import {
-  FactIssueHighlightExtension,
-  setFactIssues,
-  setActiveFactIssue,
-  findFactIssueAtPos,
-} from "./fact-issues-extension";
-
-const lowlight = createLowlight(common);
+import { splitFrontMatter } from "@/lib/markdown/serialize";
+import { annotationIdAtClick, setAnnotations, type Annotation } from "./annotations-extension";
+import { editorExtensions, editorMarkdown, loadMarkdown } from "./editor-content";
 
 interface RichEditorProps {
   value: string;
   onChange: (value: string) => void;
-  suggestions?: Suggestion[];
-  activeSuggestionId?: number | null;
-  onClickSuggestion?: (id: number | null) => void;
-  factIssues?: FactIssueWithStaleness[];
-  activeFactIssueId?: number | null;
-  onClickFactIssue?: (id: number | null) => void;
+  /** Notes, fact notes and beats to highlight. */
+  annotations?: Annotation[];
+  /** Called with the clicked annotation id, or null for a click on plain text. */
+  onAnnotationClick?: (id: string | null) => void;
   onEditorReady?: (editor: Editor | null) => void;
+}
+
+const NO_ANNOTATIONS: Annotation[] = [];
+
+/** Stable identity for an annotation list, so unchanged lists aren't re-dispatched. */
+function annotationsKey(list: Annotation[]): string {
+  return list.map((a) => `${a.id}|${a.kind}|${a.priority ?? ""}|${a.active ? 1 : 0}|${a.anchorText}`).join("\n");
 }
 
 export function RichEditor({
   value,
   onChange,
-  suggestions,
-  activeSuggestionId,
-  onClickSuggestion,
-  factIssues,
-  activeFactIssueId,
-  onClickFactIssue,
+  annotations = NO_ANNOTATIONS,
+  onAnnotationClick,
   onEditorReady,
 }: RichEditorProps) {
-  const setSelectedSection = useAppStore((s) => s.setSelectedSection);
-  const skipNextUpdate = useRef(false);
   const needsMarkdownInit = useRef(true);
+  /** Last markdown this editor emitted, so echoing it back is a no-op. */
+  const lastEmitted = useRef<string | null>(null);
+  /** Front matter of the loaded script, written back as is (the editor has no node for it). */
+  const frontMatter = useRef("");
+  const onChangeRef = useRef(onChange);
+  const onAnnotationClickRef = useRef(onAnnotationClick);
+  const appliedAnnotations = useRef<string | null>(null);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+    onAnnotationClickRef.current = onAnnotationClick;
+  });
 
   const editor = useEditor({
     immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({
-        codeBlock: false,
-      }),
-      Markdown,
-      Placeholder.configure({
-        placeholder: "Write your script...",
-      }),
-      LinkExtension.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: "text-primary underline cursor-pointer",
-        },
-      }),
-      Table.configure({ resizable: false }),
-      TableRow,
-      TableCell,
-      TableHeader,
-      CodeBlockLowlight.configure({ lowlight }),
-      SuggestionHighlightExtension,
-      FactIssueHighlightExtension,
-    ],
+    extensions: editorExtensions(),
     content: "",
+    // Programmatic loads pass emitUpdate: false, so every update here is the
+    // writer's own edit (or their undo/redo of one).
     onUpdate: ({ editor: ed }) => {
-      if (skipNextUpdate.current) {
-        skipNextUpdate.current = false;
-        return;
-      }
-      const md = ed.getMarkdown();
-      onChange(md);
-    },
-    onSelectionUpdate: ({ editor: ed }) => {
-      const { from, to } = ed.state.selection;
-      if (from !== to) {
-        const text = ed.state.doc.textBetween(from, to, " ");
-        if (text.trim().length > 10) {
-          setSelectedSection(text.trim());
-        }
-      } else {
-        setSelectedSection(null);
-      }
+      // The writer has typed: from now on the editor is the source of truth.
+      needsMarkdownInit.current = false;
+      const md = editorMarkdown(ed, frontMatter.current);
+      lastEmitted.current = md;
+      onChangeRef.current(md);
     },
     editorProps: {
-      handleClick: (view, pos) => {
-        // Fact issues take priority over suggestions
-        const factIssueId = findFactIssueAtPos(view.state, pos);
-        if (factIssueId !== null) {
-          onClickFactIssue?.(factIssueId);
-          return false;
-        }
-
-        if (!onClickSuggestion) return false;
-        const suggestionId = findSuggestionAtPos(view.state, pos);
-        onClickSuggestion(suggestionId);
+      handleClick: (view, pos, event) => {
+        onAnnotationClickRef.current?.(annotationIdAtClick(view.state, pos, event));
         return false;
       },
       attributes: {
-        class:
-          "prose prose-lg dark:prose-invert max-w-3xl mx-auto min-h-[50vh] px-4 py-6 outline-none focus:outline-none",
+        class: "prose prose-lg max-w-none min-h-[50vh] px-4 py-6 outline-none focus:outline-none",
+        "aria-label": "Script",
+        role: "textbox",
+        "aria-multiline": "true",
       },
     },
   });
 
-  // Notify parent when editor is ready
+  // Hand the editor to the parent (cards, scrolling, section review).
   useEffect(() => {
     onEditorReady?.(editor);
+    return () => onEditorReady?.(null);
   }, [editor, onEditorReady]);
 
-  // Sync external content changes (e.g. loading a different script)
-  // On first load, always force markdown parsing since the initial content
-  // is set as empty and the contentType option doesn't work in onBeforeCreate
+  // Sync external content. The first load (also after switching back from
+  // markdown mode, which remounts this editor) always parses markdown: initial
+  // content is empty and `contentType` does not apply in onBeforeCreate. It is
+  // kept out of undo history, so Ctrl+Z can't undo the script away. A later
+  // external change is a version restore, which stays undoable (undoing it
+  // returns to the writer's previous draft) unless it brings different front
+  // matter, which undo couldn't put back. Echoes of what the editor just
+  // emitted are skipped.
   useEffect(() => {
     if (!editor) return;
-    if (needsMarkdownInit.current && value) {
+    if (value === lastEmitted.current) return;
+    if (needsMarkdownInit.current) {
+      if (!value) return;
       needsMarkdownInit.current = false;
-      skipNextUpdate.current = true;
-      editor.commands.setContent(value, { contentType: "markdown" });
+      lastEmitted.current = value;
+      frontMatter.current = loadMarkdown(editor, value);
       return;
     }
-    const currentMd = editor.getMarkdown();
+    const currentMd = editorMarkdown(editor, frontMatter.current);
+    lastEmitted.current = value;
     if (value !== currentMd) {
-      skipNextUpdate.current = true;
-      editor.commands.setContent(value, { contentType: "markdown" });
+      const undoable = splitFrontMatter(value).frontMatter === frontMatter.current;
+      frontMatter.current = loadMarkdown(editor, value, { undoable });
     }
   }, [editor, value]);
 
-  // Sync suggestions into ProseMirror plugin state
+  // Push highlights into the annotations plugin when they actually change.
   useEffect(() => {
-    if (editor && suggestions) {
-      setSuggestions(editor, suggestions);
-    }
-  }, [editor, suggestions]);
+    if (!editor) return;
+    const key = annotationsKey(annotations);
+    if (key === appliedAnnotations.current) return;
+    appliedAnnotations.current = key;
+    setAnnotations(editor, annotations);
+  }, [editor, annotations]);
 
-  // Sync active suggestion highlight
-  useEffect(() => {
-    if (editor) {
-      setActiveSuggestion(editor, activeSuggestionId ?? null);
-    }
-  }, [editor, activeSuggestionId]);
-
-  // Sync fact issues into ProseMirror plugin state
-  useEffect(() => {
-    if (editor && factIssues) {
-      setFactIssues(editor, factIssues);
-    }
-  }, [editor, factIssues]);
-
-  // Sync active fact issue highlight
-  useEffect(() => {
-    if (editor) {
-      setActiveFactIssue(editor, activeFactIssueId ?? null);
-    }
-  }, [editor, activeFactIssueId]);
-
-  return (
-    <div>
-      <div className="max-w-3xl mx-auto">
-        <RichEditorToolbar editor={editor} />
-      </div>
-      <EditorContent editor={editor} />
-    </div>
-  );
+  return <EditorContent editor={editor} />;
 }

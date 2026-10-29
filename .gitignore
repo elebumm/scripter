@@ -43,6 +43,6 @@ next-env.d.ts
 # database
 /data/
 
-# electron
-/dist-electron/
-/release/
+# Claude Code command log (full command lines; never publish)
+/.claude/hooks/command-log.jsonl
+**/command-log.jsonl

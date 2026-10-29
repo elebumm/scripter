@@ -1,23 +1,37 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { ThemeProvider } from "next-themes";
+import localFont from "next/font/local";
+import { Inter } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const cabinetGrotesk = localFont({
+  src: [
+    { path: "../../public/fonts/CabinetGrotesk-Medium.woff2", weight: "500" },
+    { path: "../../public/fonts/CabinetGrotesk-Bold.woff2", weight: "700" },
+  ],
+  variable: "--font-cabinet",
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const switzer = localFont({
+  src: [
+    { path: "../../public/fonts/Switzer-Regular.woff2", weight: "400" },
+    { path: "../../public/fonts/Switzer-Medium.woff2", weight: "500" },
+    { path: "../../public/fonts/Switzer-SemiBold.woff2", weight: "600" },
+  ],
+  variable: "--font-switzer",
+  display: "swap",
+});
+
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "Scripter — AI Script Evaluator",
-  description: "Evaluate video scripts with multiple AI models",
+  title: "Scripter",
+  description: "Write video scripts in your own words, with a council of AI readers for notes, beats and fact-checks.",
 };
 
 export default function RootLayout({
@@ -26,18 +40,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="light">
+      {/* Browser extensions add attributes to <body> before hydration. */}
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${cabinetGrotesk.variable} ${switzer.variable} ${inter.variable} antialiased`}
+        suppressHydrationWarning
       >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem={false}
-        >
-          <TooltipProvider>{children}</TooltipProvider>
-          <Toaster />
-        </ThemeProvider>
+        <TooltipProvider>{children}</TooltipProvider>
+        <Toaster />
       </body>
     </html>
   );
